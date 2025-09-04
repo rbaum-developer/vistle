@@ -3,8 +3,12 @@ set(TECIO_SHARED TRUE)
 set(TECIO_MPI FALSE)
 =======
 set(TECIO_SHARED FALSE)
+<<<<<<< HEAD
 set(TECIO_MPI TRUE)
 >>>>>>> fceb2c53 (ReadSubzoneTecplot: clean PR (only module + CMake))
+=======
+set(TECIO_MPI FALSE)
+>>>>>>> 69a4cd23 (chore: remove MPI from CmakeLists)
 include(tecio.cmake)
 
 set(HEADERS ReadSubzoneTecplot.h)
@@ -17,6 +21,7 @@ add_module(ReadSubzoneTecplot "read Sz Tecplot data " ${HEADERS} ${SOURCES})
 <<<<<<< HEAD
 <<<<<<< HEAD
 target_link_libraries(ReadSubzoneTecplot PRIVATE vistle_tecio)
+<<<<<<< HEAD
 =======
 target_link_libraries(ReadSubzoneTecplot vistle_tecio)
 =======
@@ -30,3 +35,5 @@ if(TECIO_MPI)
     target_link_libraries(ReadSubzoneTecplot PRIVATE MPI::MPI_CXX)
 endif()
 >>>>>>> fceb2c53 (ReadSubzoneTecplot: clean PR (only module + CMake))
+=======
+>>>>>>> 69a4cd23 (chore: remove MPI from CmakeLists)
