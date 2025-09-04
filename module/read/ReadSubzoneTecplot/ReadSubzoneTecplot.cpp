@@ -28,7 +28,6 @@
 #include <mpi.h>
 #endif
 
-
 using namespace vistle;
 namespace fs = vistle::filesystem;
 using vistle::Scalar;
@@ -83,12 +82,10 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
         m_fieldsOut[i] = createOutputPort("field_out_" + std::to_string(i), "data field");
     }
 
-
     observeParameter(m_filedir); // examine method is called when parameter is changed
 }
 
 ReadSubzoneTecplot::~ReadSubzoneTecplot() = default;
-
 
 bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 {
@@ -186,7 +183,6 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
                 if (var < NumVar)
                     outputStream << ',';
             }
-
             std::cerr << "variables: " << outputStream.str() << std::endl;
 
             // File type
@@ -502,7 +498,6 @@ std::unordered_map<std::string, std::vector<int>> ReadSubzoneTecplot::setFieldCh
             choices.push_back(varNames[v]);
         }
     }
-
 
     // 2) Build combined vector groups by prefix (strip trailing X/Y/Z)
     //    Only add groups where all three components exist.
