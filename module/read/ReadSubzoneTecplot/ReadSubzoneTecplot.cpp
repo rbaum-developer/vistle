@@ -774,7 +774,10 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                 sendError("Failed to open file %s (rc=%d)", filename.c_str(), open_rc);
                 return false;
             }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 0740d5da (chore: apply pre-commit auto-fixes (EOF + clang-format), add missing scope to target libraries)
             //sendInfo("Reading file %s for timestep %d", filename.c_str(), timestep);
             // Read grids of all zones:
             int32_t numZones = 0;
@@ -891,11 +894,16 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                         }
 
 
+<<<<<<< HEAD
                         {
                             std::lock_guard<std::mutex> lk(g_tecio_mutex);
                             if (tecVarGetName(fh, varInFile[0], &varName) != 0)
                                 varName = nullptr;
                         }
+=======
+                        if (tecVarGetName(fh, varInFile[0], &varName) != 0)
+                            varName = nullptr;
+>>>>>>> 0740d5da (chore: apply pre-commit auto-fixes (EOF + clang-format), add missing scope to target libraries)
 
 
                         // varInFile is filled already; you also did: tecVarGetName(fh, varInFile[0], &varName);
