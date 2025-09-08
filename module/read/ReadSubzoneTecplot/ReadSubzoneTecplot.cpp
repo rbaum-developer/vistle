@@ -28,6 +28,7 @@
 #include <mpi.h>
 #endif
 
+
 using namespace vistle;
 namespace fs = vistle::filesystem;
 using vistle::Scalar;
@@ -86,6 +87,9 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
 }
 
 ReadSubzoneTecplot::~ReadSubzoneTecplot() = default;
+
+
+
 
 bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 {
@@ -183,6 +187,7 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
                 if (var < NumVar)
                     outputStream << ',';
             }
+
             std::cerr << "variables: " << outputStream.str() << std::endl;
 
             // File type
@@ -199,6 +204,7 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
                     tecFileReaderClose(&fh);
                 }
                 return false;
+
             }
 
 
@@ -231,6 +237,8 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
                     return false;
                 }
             }
+
+
 
 
             m_indicesCombinedVariables =
@@ -498,6 +506,7 @@ std::unordered_map<std::string, std::vector<int>> ReadSubzoneTecplot::setFieldCh
             choices.push_back(varNames[v]);
         }
     }
+
 
     // 2) Build combined vector groups by prefix (strip trailing X/Y/Z)
     //    Only add groups where all three components exist.
@@ -774,16 +783,18 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                 sendError("Failed to open file %s (rc=%d)", filename.c_str(), open_rc);
                 return false;
             }
-<<<<<<< HEAD
-
-=======
->>>>>>> 0740d5da (chore: apply pre-commit auto-fixes (EOF + clang-format), add missing scope to target libraries)
             //sendInfo("Reading file %s for timestep %d", filename.c_str(), timestep);
             // Read grids of all zones:
             int32_t numZones = 0;
             {
                 std::lock_guard<std::mutex> lk(g_tecio_mutex);
                 tecDataSetGetNumZones(fh, &numZones);
+
+            //sendInfo("Reading file %s for timestep %d", filename.c_str(), timestep);
+            // Read grids of all zones:
+            int32_t numZones = 0;
+            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+            tecDataSetGetNumZones(fh, &numZones);
             }
 
             int32_t zone = block + 1; // zone numbers start with 1, not 0
@@ -793,6 +804,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                 {
                     std::lock_guard<std::mutex> lk(g_tecio_mutex);
                     tecFileReaderClose(&fh);
+                { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                tecFileReaderClose(&fh);
                 }
                 return true; // nothing to output for this (timestep, block)
             }
@@ -838,7 +851,24 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                 tecZoneGetSolutionTime(fh, zone, &solutionTime);
             }
             strGrid->setTimestep(timestep);
+            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+            tecZoneGetSolutionTime(fh, zone, &solutionTime);
+            }
 
+            //int step = getTimestepForSolutionTime(solutionTimes, solutionTime);
+            strGrid->setTimestep(timestep);
+
+            int32_t loc = 0;
+            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+            tecZoneVarGetValueLocation(fh, zone, 1, &loc);
+            }
+
+            strGrid->setMapping(
+                loc == 0 ? vistle::DataBase::Element
+                         : vistle::DataBase::Vertex); // set mapping to vertex, because coordinates are vertex-centered
+            //std::cout << "reading zone number " << zone << " of " << numZones << " zones" << std::endl;
+            //std::cout << "timestep: " << timestep << std::endl;
+            //std::cout << "solution time: " << solutionTime << std::endl;
             token.applyMeta(strGrid);
             token.addObject(m_grid, strGrid);
 
@@ -876,6 +906,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                 {
                     std::lock_guard<std::mutex> lk(g_tecio_mutex);
                     tecDataSetGetNumVars(fh, &NumVar);
+                { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                tecDataSetGetNumVars(fh, &NumVar);
                 }
 
                 char *varName = NULL;
@@ -893,17 +925,17 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             continue;
                         }
 
-
-<<<<<<< HEAD
                         {
                             std::lock_guard<std::mutex> lk(g_tecio_mutex);
                             if (tecVarGetName(fh, varInFile[0], &varName) != 0)
                                 varName = nullptr;
                         }
-=======
                         if (tecVarGetName(fh, varInFile[0], &varName) != 0)
                             varName = nullptr;
->>>>>>> 0740d5da (chore: apply pre-commit auto-fixes (EOF + clang-format), add missing scope to target libraries)
+                        { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                          if (tecVarGetName(fh, varInFile[0], &varName) != 0)
+                              varName = nullptr;
+                        }
 
 
                         // varInFile is filled already; you also did: tecVarGetName(fh, varInFile[0], &varName);
@@ -912,6 +944,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             {
                                 std::lock_guard<std::mutex> lk(g_tecio_mutex);
                                 tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
+                            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                            tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
                             }
 
                             Vec<Scalar, 1>::ptr field = readVariables(fh, numValues, zone, varInFile[0]);
@@ -920,9 +954,12 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             if (field) {
                                 // 0 = cell-centered (element), 1 = nodal (vertex)
                                 int32_t loc = 0;
+
                                 {
                                     std::lock_guard<std::mutex> lk(g_tecio_mutex);
                                     tecZoneVarGetValueLocation(fh, zone, varInFile[0], &loc);
+                                { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                                tecZoneVarGetValueLocation(fh, zone, varInFile[0], &loc);
                                 }
 
 
@@ -955,6 +992,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             {
                                 std::lock_guard<std::mutex> lk(g_tecio_mutex);
                                 tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
+                            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                            tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
                             }
                             const int startIndex = 1;
 
@@ -964,6 +1003,10 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[0], startIndex, numValues, xValues.data());
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[1], startIndex, numValues, yValues.data());
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[2], startIndex, numValues, zValues.data());
+                            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                            tecZoneVarGetFloatValues(fh, zone, varInFile[0], startIndex, numValues, xValues.data());
+                            tecZoneVarGetFloatValues(fh, zone, varInFile[1], startIndex, numValues, yValues.data());
+                            tecZoneVarGetFloatValues(fh, zone, varInFile[2], startIndex, numValues, zValues.data());
                             }
 
                             Vec<Scalar, 3>::ptr field = combineVarstoOneOutput(xValues, yValues, zValues, numValues);
@@ -977,6 +1020,11 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                                     tecZoneVarGetValueLocation(fh, zone, varInFile[2], &locZ);
                                 }
 
+                                { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                                tecZoneVarGetValueLocation(fh, zone, varInFile[0], &locX);
+                                tecZoneVarGetValueLocation(fh, zone, varInFile[1], &locY);
+                                tecZoneVarGetValueLocation(fh, zone, varInFile[2], &locZ);
+                                }
 
                                 if (locX != locY || locX != locZ) {
                                     std::cerr << "Warning: vector components have mixed locations (" << locX << ","
@@ -1009,6 +1057,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
             {
                 std::lock_guard<std::mutex> lk(g_tecio_mutex);
                 tecFileReaderClose(&fh);
+            { std::lock_guard<std::mutex> lk(g_tecio_mutex);
+              tecFileReaderClose(&fh);
             }
         } //close try
         catch (const std::exception &e) {
