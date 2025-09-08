@@ -45,8 +45,8 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
 
     m_grid = createOutputPort("grid_out", "grid or geometry");
 
-    setParallelizationMode(Serial);
-    //setParallelizationMode(ParallelizeTimeAndBlocks); // Parallelization does not work, leads to abortion errors
+    //setParallelizationMode(Serial);
+    setParallelizationMode(ParallelizeTimeAndBlocks); // Parallelization does not work, leads to abortion errors
 
     std::vector<std::string> varChoices{Reader::InvalidChoice};
     for (int i = 0; i < NumPorts; i++) {
@@ -63,11 +63,6 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
     }
 
     observeParameter(m_filedir); // examine method is called when parameter is changed
-    setParameterRange(m_first, Integer(0), Integer(10000));
-    setParameterRange(m_last, Integer(-1), Integer(10000));
-    setParameterRange(m_increment, Integer(1), Integer(10000));
-    //observeParameter(m_first);
-    //observeParameter(m_last);
 }
 
 ReadSubzoneTecplot::~ReadSubzoneTecplot() = default;
@@ -75,17 +70,15 @@ ReadSubzoneTecplot::~ReadSubzoneTecplot() = default;
 bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 {
     StopWatch w("ReadSubzoneTecplot::examine");
-    if (!param || param == m_filedir) { // FIX: correct guard
+    if (!param || param == m_filedir) {
         if (!inspectDir()) {
             sendError("Directory %s does not exist or is not valid", m_filedir->getValue().c_str());
             return false;
         }
 
-        const std::string filename = fileList.front(); // small cleanup
+        const std::string filename = fileList.front();
         try {
-            // Set timesteps to user input:
-            m_fileChoice = setTimestepChoice(numFiles);
-            //setTimesteps(numFiles - 1);
+            setTimesteps(numFiles);
 
             // compute a stable partition count across ALL timesteps ---
             int32_t maxZones = 0;
@@ -98,10 +91,6 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
                         maxZones = nz;
                     tecFileReaderClose(&fh2);
                 }
-            }
-            if (maxZones <= 0) { // FIX: guard against bad inputs
-                sendError("No zones found in any timestep.");
-                return false;
             }
             setPartitions(maxZones);
             setHandlePartitions(PartitionTimesteps);
@@ -119,9 +108,9 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
             tecDataSetGetTitle(fh, &dataSetTitle);
             // (use dataSetTitle if you like)
             if (dataSetTitle)
-                tecStringFree(&dataSetTitle); // FIX: free TecIO string
+                tecStringFree(&dataSetTitle);
 
-            // Variables listing (unchanged)
+            // Variables listing
             int32_t NumVar = 0;
             tecDataSetGetNumVars(fh, &NumVar);
             std::ostringstream outputStream;
@@ -179,39 +168,6 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
         }
     }
     return true;
-}
-
-//TODO: deal with last step -1 case
-std::vector<int> ReadSubzoneTecplot::setTimestepChoice(int numFiles)
-{
-    std::vector<int> indices;
-
-    auto first = m_first->getValue();
-    auto last = m_last->getValue();
-    auto increment = m_increment->getValue();
-    sendInfo("Timestep range selected: first %d, last %d, increment %d", first, last, increment);
-    sendInfo("Number of possible timesteps:" + std::to_string(numFiles));
-
-    if (last < numFiles && first <= last && increment > 0) {
-        for (int i = first; i < last; i += increment) {
-            indices.push_back(i);
-            std::cout << "Add file index: " << i << std::endl;
-        }
-    } else {
-        sendError("Invalid timestep range selected. Directory contains " + std::to_string(numFiles) +
-                  " files. Resetting to full range.");
-
-        for (int i = 0; i < numFiles; i += 1) {
-            indices.push_back(i);
-            std::cout << "Add file index: " << i << std::endl;
-        }
-    }
-    setTimesteps(indices.size()); // Set timesteps to number of selected files
-    /*     setParameterRange(m_first, Integer(0), Integer(numFiles - 1));
-    setParameterRange(m_last, Integer(-1), Integer(numFiles - 1));
-    setParameterRange(m_increment, Integer(1), Integer(numFiles - 1)); */
-
-    return indices;
 }
 
 bool ReadSubzoneTecplot::prepareRead()
@@ -655,11 +611,7 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
         //std::cout << "Constant timestep: " << timestep << std::endl;
         return true;
     } else {
-        //std::cout << "Reading timestep: " << timestep << std::endl;
-        //std::cout << "Size of fileList: " << fileList.size() << std::endl;
-        int i = m_fileChoice[timestep];
-        const std::string &filename = fileList[i];
-        //std::cout << "Using file: " << filename << std::endl;
+        const std::string &filename = fileList[timestep];
         try {
             void *fh = nullptr;
             const int open_rc = tecFileReaderOpen(filename.c_str(), &fh);
