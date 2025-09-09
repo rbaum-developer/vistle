@@ -863,9 +863,6 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
             tecZoneVarGetValueLocation(fh, zone, 1, &loc);
             }
 
-            strGrid->setMapping(
-                loc == 0 ? vistle::DataBase::Element
-                         : vistle::DataBase::Vertex); // set mapping to vertex, because coordinates are vertex-centered
             //std::cout << "reading zone number " << zone << " of " << numZones << " zones" << std::endl;
             //std::cout << "timestep: " << timestep << std::endl;
             //std::cout << "solution time: " << solutionTime << std::endl;
