@@ -89,8 +89,6 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
 ReadSubzoneTecplot::~ReadSubzoneTecplot() = default;
 
 
-
-
 bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 {
     StopWatch w("ReadSubzoneTecplot::examine");
