@@ -381,7 +381,7 @@ void Particle<S>::addToOutput()
         Scalar prevTime(0);
         Scalar time(0);
         Index timestep = 0;
-        Index prevIdx = 0;
+        volatile Index prevIdx = 0;
         std::shared_ptr<const Segment> prevSeg;
         for (auto &ent: m_segments) {
             const auto &seg = *ent.second;
