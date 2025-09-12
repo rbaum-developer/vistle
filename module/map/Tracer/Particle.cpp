@@ -386,14 +386,14 @@ void Particle<S>::addToOutput()
         Scalar prevTime(0);
         Scalar time(0);
         Index timestep = 0;
-        Index prevIdx = 0;
+        volatile Index prevIdx = 0;
         std::shared_ptr<const Segment> prevSeg;
         for (auto &ent: m_segments) {
             const auto &seg = *ent.second;
             if (seg.m_num < 0) {
                 continue;
             }
-            if (!prevSeg)
+            if (!prevSeg || (prevSeg->m_vhist.size() == 0))
                 prevSeg = ent.second;
 
             auto N = seg.m_xhist.size();
