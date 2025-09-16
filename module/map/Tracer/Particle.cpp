@@ -301,13 +301,8 @@ bool Particle<S>::isTracing(bool wait)
     }
 
     auto status = m_progressFuture.wait_for(std::chrono::milliseconds(wait ? 10 : 0));
-#if !defined(__clang__) && defined(__GNUC__) && (__GNUC__ == 4) && (__GNUC_MINOR__ <= 6)
-    if (!status)
-        return true;
-#else
     if (status != std::future_status::ready)
         return true;
-#endif
 
     m_tracing = false;
     m_progress = m_progressFuture.get();
@@ -393,10 +388,14 @@ void Particle<S>::addToOutput()
             if (seg.m_num < 0) {
                 continue;
             }
-            if (!prevSeg || (prevSeg->m_vhist.size() == 0))
+            auto N = seg.m_xhist.size();
+            if (N == 0) {
+                // skip empty segments
+                continue;
+            }
+            if (!prevSeg)
                 prevSeg = ent.second;
 
-            auto N = seg.m_xhist.size();
             //std::cerr << "particle " << seg.m_id << ", N=" << N << " steps" << std::endl;
             for (Index i = 0; i < N; ++i) {
                 auto nextTime = seg.m_times[i];
