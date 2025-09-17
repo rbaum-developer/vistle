@@ -38,6 +38,13 @@ using vistle::Index;
 
 namespace {
 static std::mutex g_tecio_mutex; // serialize TecIO open/close calls per process
+
+// Helper to wrap TecIO calls with mutex locking
+template<typename Func>
+auto tecio_locked(Func &&func) -> decltype(func()) {
+    std::lock_guard<std::mutex> lk(g_tecio_mutex);
+    return func();
+}
 }
 
 
@@ -67,7 +74,7 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
 
 
     setParallelizationMode(Serial);
-    //setParallelizationMode(ParallelizeTimeAndBlocks); // Parallelization does not work, leads to abortion errors
+    //setParallelizationMode(ParallelizeTimeAndBlocks); 
 
     std::vector<std::string> varChoices{Reader::InvalidChoice};
     for (int i = 0; i < NumPorts; i++) {
@@ -109,23 +116,14 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 
             for (const auto &f: fileList) {
                 void *fh2 = nullptr;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    /* open */ (void)tecFileReaderOpen(f.c_str(), &fh2);
-                }
+                tecio_locked([&] { (void)tecFileReaderOpen(f.c_str(), &fh2); });
                 if (fh2) {
                     int32_t nz = 0;
-                    {
-                        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                        tecDataSetGetNumZones(fh2, &nz);
-                    }
+                    tecio_locked([&] { tecDataSetGetNumZones(fh2, &nz); });
 
                     if (nz > maxZones)
                         maxZones = nz;
-                    {
-                        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                        /* close */ tecFileReaderClose(&fh2);
-                    }
+                    tecio_locked([&] { tecFileReaderClose(&fh2); });
                 }
             }
 
@@ -140,48 +138,31 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 
             // Open a LOCAL handle for probing
             void *fh = nullptr;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
+            tecio_locked([&] {
                 if (tecFileReaderOpen(filename.c_str(), &fh) != 0)
                     fh = nullptr;
-            }
+            });
             if (!fh) {
                 sendError("Failed to open base file: %s", filename.c_str());
                 return false;
             }
 
-
             char *dataSetTitle = nullptr;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecDataSetGetTitle(fh, &dataSetTitle);
-            }
+            tecio_locked([&] { tecDataSetGetTitle(fh, &dataSetTitle); });
             if (dataSetTitle) {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecStringFree(&dataSetTitle);
+                tecio_locked([&] { tecStringFree(&dataSetTitle); });
             }
 
-
-            // Variables listing (unchanged)
             int32_t NumVar = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecDataSetGetNumVars(fh, &NumVar);
-            }
+            tecio_locked([&] { tecDataSetGetNumVars(fh, &NumVar); });
 
             std::ostringstream outputStream;
             for (int32_t var = 1; var <= NumVar; ++var) {
                 char *name = nullptr;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecVarGetName(fh, var, &name);
-                }
+                tecio_locked([&] { tecVarGetName(fh, var, &name); });
                 if (name) {
                     outputStream << name;
-                    {
-                        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                        tecStringFree(&name);
-                    }
+                    tecio_locked([&] { tecStringFree(&name); });
                 }
                 if (var < NumVar)
                     outputStream << ',';
@@ -191,60 +172,33 @@ bool ReadSubzoneTecplot::examine(const vistle::Parameter *param)
 
             // File type
             int32_t fileType = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecFileGetType(fh, &fileType);
-            }
+            tecio_locked([&] { tecFileGetType(fh, &fileType); });
 
             if (fileType == 2) { // solution-only
                 std::cerr << "Tecplot file contains no grid, only solution data." << std::endl;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecFileReaderClose(&fh);
-                }
+                tecio_locked([&] { tecFileReaderClose(&fh); });
                 return false;
             }
 
-
             int32_t numGeoms = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecGeomGetNumGeoms(fh, &numGeoms);
-            }
+            tecio_locked([&] { tecGeomGetNumGeoms(fh, &numGeoms); });
 
+            int32_t numZones = 0;
+            tecio_locked([&] { tecDataSetGetNumZones(fh, &numZones); });
 
-            int32_t numZones = 0; // <-- declare in the outer scope
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecDataSetGetNumZones(fh, &numZones);
-            }
-
-            // now this compiles:
             for (int32_t inputZone = 1; inputZone <= numZones; ++inputZone) {
                 int32_t zoneType = -1;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecZoneGetType(fh, inputZone, &zoneType);
-                }
+                tecio_locked([&] { tecZoneGetType(fh, inputZone, &zoneType); });
                 if (zoneType != 0) {
                     std::cerr << "Tecplot module currently supports only structured (ordered) zones." << std::endl;
-                    {
-                        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                        tecFileReaderClose(&fh);
-                    }
+                    tecio_locked([&] { tecFileReaderClose(&fh); });
                     return false;
                 }
             }
 
+            m_indicesCombinedVariables = setFieldChoices(fh);
 
-            m_indicesCombinedVariables =
-                setFieldChoices(fh); // build UI choices once & cache grouped indices (parallel-safe)
-
-
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecFileReaderClose(&fh); // normal close
-            }
+            tecio_locked([&] { tecFileReaderClose(&fh); });
 
         } catch (const std::exception &e) {
             std::cerr << "failed to probe " << filename << ": " << e.what() << '\n';
@@ -305,58 +259,40 @@ Byte ReadSubzoneTecplot::tecToVistleType(int tecType)
 Vec<Scalar, 1>::ptr ReadSubzoneTecplot::readVariables(void *fh, int64_t numValues, const int32_t inputZone, int32_t var)
 {
     int32_t varType;
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecZoneVarGetType(fh, inputZone, var, &varType);
-    }
+    tecio_locked([&] { tecZoneVarGetType(fh, inputZone, var, &varType); });
     Vec<Scalar, 1>::ptr field(new Vec<Scalar, 1>(numValues));
     switch ((FieldDataType_e)varType) {
     case FieldDataType_Float: {
         std::vector<float> values(numValues);
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecZoneVarGetFloatValues(fh, inputZone, var, 1, numValues, values.data());
-        }
+        tecio_locked([&] { tecZoneVarGetFloatValues(fh, inputZone, var, 1, numValues, values.data()); });
         for (size_t i = 0; i < numValues; i++) {
             field->x()[i] = values[i];
         }
     } break;
     case FieldDataType_Double: {
         std::vector<double> values(numValues);
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecZoneVarGetDoubleValues(fh, inputZone, var, 1, numValues, values.data());
-        }
+        tecio_locked([&] { tecZoneVarGetDoubleValues(fh, inputZone, var, 1, numValues, values.data()); });
         for (size_t i = 0; i < numValues; i++) {
             field->x()[i] = values[i];
         }
     } break;
     case FieldDataType_Int32: {
         std::vector<int32_t> values(numValues);
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecZoneVarGetInt32Values(fh, inputZone, var, 1, numValues, values.data());
-        }
+        tecio_locked([&] { tecZoneVarGetInt32Values(fh, inputZone, var, 1, numValues, values.data()); });
         for (size_t i = 0; i < numValues; i++) {
             field->x()[i] = values[i];
         }
     } break;
     case FieldDataType_Int16: {
         std::vector<int16_t> values(numValues);
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecZoneVarGetInt16Values(fh, inputZone, var, 1, numValues, values.data());
-        }
+        tecio_locked([&] { tecZoneVarGetInt16Values(fh, inputZone, var, 1, numValues, values.data()); });
         for (size_t i = 0; i < numValues; i++) {
             field->x()[i] = values[i];
         }
     } break;
     case FieldDataType_Byte: {
         std::vector<uint8_t> values(numValues);
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecZoneVarGetUInt8Values(fh, inputZone, var, 1, numValues, values.data());
-        }
+        tecio_locked([&] { tecZoneVarGetUInt8Values(fh, inputZone, var, 1, numValues, values.data()); });
         for (size_t i = 0; i < numValues; i++) {
             field->x()[i] = values[i];
         }
@@ -378,12 +314,9 @@ StructuredGrid::ptr ReadSubzoneTecplot::createStructuredGrid(void *fh, int32_t i
     int64_t m_numVert_y = 0;
     int64_t m_numVert_z = 0;
     int32_t numZones = 0;
-    tecDataSetGetNumZones(fh, &numZones);
+    tecio_locked([&] { tecDataSetGetNumZones(fh, &numZones); });
 
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecZoneGetIJK(fh, inputZone, &m_numVert_x, &m_numVert_y, &m_numVert_z);
-    }
+    tecio_locked([&] { tecZoneGetIJK(fh, inputZone, &m_numVert_x, &m_numVert_y, &m_numVert_z); });
     StructuredGrid::ptr str_grid = std::make_shared<StructuredGrid>(m_numVert_x, m_numVert_y, m_numVert_z);
 
     auto &xCoords = str_grid->x();
@@ -398,31 +331,24 @@ StructuredGrid::ptr ReadSubzoneTecplot::createStructuredGrid(void *fh, int32_t i
     int64_t n = 0;
 
 
-    // X
+ 
     int64_t numValues = 0;
+
+    // X
     int32_t var = 1;
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecZoneVarGetNumValues(fh, inputZone, var, &numValues);
-    }
+    tecio_locked([&] { tecZoneVarGetNumValues(fh, inputZone, var, &numValues); });
     auto fx = readVariables(fh, (int32_t)numValues, inputZone, var);
     std::copy(fx->x().begin(), fx->x().end(), xCoords.begin());
 
     // Y
     var = 2;
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecZoneVarGetNumValues(fh, inputZone, var, &numValues);
-    }
+    tecio_locked([&] { tecZoneVarGetNumValues(fh, inputZone, var, &numValues); });
     auto fy = readVariables(fh, (int32_t)numValues, inputZone, var);
     std::copy(fy->x().begin(), fy->x().end(), yCoords.begin());
 
     // Z
     var = 3;
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecZoneVarGetNumValues(fh, inputZone, var, &numValues);
-    }
+    tecio_locked([&] { tecZoneVarGetNumValues(fh, inputZone, var, &numValues); });
     auto fz = readVariables(fh, (int32_t)numValues, inputZone, var);
     std::copy(fz->x().begin(), fz->x().end(), zCoords.begin());
 
@@ -483,20 +409,16 @@ std::unordered_map<std::string, std::vector<int>> ReadSubzoneTecplot::setFieldCh
     std::vector<std::string> choices{Reader::InvalidChoice};
 
     int32_t NumVar = 0;
-    tecDataSetGetNumVars(fh, &NumVar);
+    tecio_locked([&] { tecDataSetGetNumVars(fh, &NumVar); });
 
     // 1) Add all scalar variable names (skip coords 1..3) to choices
     std::vector<std::string> varNames(NumVar + 1);
     for (int32_t v = 1; v <= NumVar; ++v) {
         char *nm = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecVarGetName(fh, v, &nm);
-        }
+        tecio_locked([&] { tecVarGetName(fh, v, &nm); });
         varNames[v] = nm ? std::string(nm) : std::string();
         if (nm) {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecStringFree(&nm);
+            tecio_locked([&] { tecStringFree(&nm); });
         }
         if (v >= 4 && !varNames[v].empty()) {
             choices.push_back(varNames[v]);
@@ -564,47 +486,31 @@ ReadSubzoneTecplot::getIndexOfTecVar(const std::string &varName,
                                      void *fh) const
 {
     std::vector<int> result;
-    // get number of variables
     int32_t NumVar = 0;
-    {
-        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-        tecDataSetGetNumVars(fh, &NumVar);
-    }
+    tecio_locked([&] { tecDataSetGetNumVars(fh, &NumVar); });
 
     for (int32_t var = 1; var <= NumVar; ++var) {
         char *name = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecVarGetName(fh, var, &name);
-        }
+        tecio_locked([&] { tecVarGetName(fh, var, &name); });
         if (!name) {
             continue;
         }
 
         if (varName == name) {
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecStringFree(&name);
-            }
+            tecio_locked([&] { tecStringFree(&name); });
             return result = {var};
         } else {
             for (const auto &group: indicesCombinedVariables) {
                 std::string combinedName = group.first;
                 if (combinedName == varName) {
-                    {
-                        std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                        tecStringFree(&name);
-                    }
+                    tecio_locked([&] { tecStringFree(&name); });
                     result = {(int)group.second[0], (int)group.second[1], (int)group.second[2]};
                     return result;
                 }
             }
         }
 
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecStringFree(&name);
-        }
+        tecio_locked([&] { tecStringFree(&name); });
     }
 
     result.push_back(-1); // not found
@@ -680,22 +586,18 @@ std::unordered_map<int, double> ReadSubzoneTecplot::orderSolutionTimes(std::vect
     for (const auto &file: fileList) {
         try {
             void *fh = nullptr;
-            tecFileReaderOpen(file.c_str(), &fh);
+            tecio_locked([&] { tecFileReaderOpen(file.c_str(), &fh); });
 
             int32_t numZones = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecDataSetGetNumZones(fh, &numZones);
-            }
-
+            tecio_locked([&] { tecDataSetGetNumZones(fh, &numZones); });
 
             for (int32_t zone = 1; zone <= numZones; ++zone) {
                 double solutionTime = 0.0;
-                tecZoneGetSolutionTime(fh, zone, &solutionTime);
+                tecio_locked([&] { tecZoneGetSolutionTime(fh, zone, &solutionTime); });
                 solutionTimeTimestepPairs.emplace_back(solutionTime, solutionTimeTimestepPairs.size());
             }
 
-            tecFileReaderClose(&fh);
+            tecio_locked([&] { tecFileReaderClose(&fh); });
         } catch (const std::exception &e) {
             sendError("Failed to read solution time from file %s: %s", file.c_str(), e.what());
         }
@@ -732,18 +634,12 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
         const int refTs = std::max(
             0, std::min(static_cast<int>(fileList.size()) - 1, static_cast<int>(m_staticRefTimestep->getValue())));
         void *fh_ref = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecFileReaderOpen(fileList[refTs].c_str(), &fh_ref);
-        }
+        tecio_locked([&] { tecFileReaderOpen(fileList[refTs].c_str(), &fh_ref); });
         if (!fh_ref)
             return true;
 
         int32_t numZonesRef = 0;
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecDataSetGetNumZones(fh_ref, &numZonesRef);
-        }
+        tecio_locked([&] { tecDataSetGetNumZones(fh_ref, &numZonesRef); });
 
         const int zone = block + 1;
         if (zone >= 1 && zone <= numZonesRef) {
@@ -752,16 +648,11 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
             token.applyMeta(g0);
             token.addObject(m_grid, g0);
         }
-        {
-            std::lock_guard<std::mutex> lk(g_tecio_mutex);
-            tecFileReaderClose(&fh_ref);
-        }
+        tecio_locked([&] { tecFileReaderClose(&fh_ref); });
         return true;
     }
 
-
     if (timestep < 0 || timestep >= numFiles) {
-        //std::cout << "Constant timestep: " << timestep << std::endl;
         return true;
     } else {
         //std::cout << "Reading timestep: " << timestep << std::endl;
@@ -771,10 +662,7 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
         try {
             void *fh = nullptr;
             int open_rc = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                open_rc = tecFileReaderOpen(filename.c_str(), &fh);
-            }
+            tecio_locked([&] { open_rc = tecFileReaderOpen(filename.c_str(), &fh); });
             if (open_rc != 0 || !fh) {
                 sendError("Failed to open file %s (rc=%d)", filename.c_str(), open_rc);
                 return false;
@@ -783,62 +671,39 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
             //sendInfo("Reading file %s for timestep %d", filename.c_str(), timestep);
             // Read grids of all zones:
             int32_t numZones = 0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecDataSetGetNumZones(fh, &numZones);
-            }
+            tecio_locked([&] { tecDataSetGetNumZones(fh, &numZones); });
 
             int32_t zone = block + 1; // zone numbers start with 1, not 0
 
-            //Modified: new chunk ---skip blocks beyond this file's zone count
             if (zone < 1 || zone > numZones) {
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecFileReaderClose(&fh);
-                }
-                return true; // nothing to output for this (timestep, block)
+                tecio_locked([&] { tecFileReaderClose(&fh); });
+                return true;
             }
-
-            // -
 
             StructuredGrid::ptr strGrid;
 
             if (m_staticGeometry->getValue() == 1) {
-                // clamp reference timestep
-                // safe clamp of reference timestep into [0, nfiles-1]
                 const int nfiles = static_cast<int>(fileList.size());
                 const int hi = std::max(0, nfiles - 1);
                 const int refTs = std::clamp<int>(m_staticRefTimestep->getValue(), 0, hi);
 
-                // open the reference file just to read geometry for this zone
                 void *fh_ref = nullptr;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecFileReaderOpen(fileList[refTs].c_str(), &fh_ref);
-                }
+                tecio_locked([&] { tecFileReaderOpen(fileList[refTs].c_str(), &fh_ref); });
                 if (!fh_ref) {
                     sendError("Static geometry: failed to open reference timestep file %s", fileList[refTs].c_str());
                     return false;
                 }
 
-                // Build grid from reference timestep, same zone index
                 strGrid = createStructuredGrid(fh_ref, zone);
 
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecFileReaderClose(&fh_ref);
-                }
+                tecio_locked([&] { tecFileReaderClose(&fh_ref); });
             } else {
-                // dynamic geometry from current timestep
                 strGrid = createStructuredGrid(fh, zone);
             }
 
             // time/meta + publish
             auto solutionTime = 0.0;
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecZoneGetSolutionTime(fh, zone, &solutionTime);
-            }
+            tecio_locked([&] { tecZoneGetSolutionTime(fh, zone, &solutionTime); });
             strGrid->setTimestep(timestep);
 
             token.applyMeta(strGrid);
@@ -846,12 +711,10 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
 
             // check if solution is included in the file
             int32_t fileType;
-            if (tecFileGetType(fh, &fileType) != 1 && !(m_indicesCombinedVariables.empty())) {
+            tecio_locked([&] { tecFileGetType(fh, &fileType); });
+            if (fileType != 1 && !(m_indicesCombinedVariables.empty())) {
                 int32_t NumVar = 0;
-                {
-                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                    tecDataSetGetNumVars(fh, &NumVar);
-                }
+                tecio_locked([&] { tecDataSetGetNumVars(fh, &NumVar); });
 
                 char *varName = NULL;
                 int64_t numValues;
@@ -859,38 +722,27 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
 
                     std::string name = m_fieldChoice[var]->getValue();
                     if (!emptyValue(m_fieldChoice[var])) {
-                        //std::cout << "Reading variable: " << name << " on port: " << var << std::endl;
                         std::vector<int> varInFile = getIndexOfTecVar(name, m_indicesCombinedVariables, fh);
 
-                        // guard against invalid indices
                         if (varInFile.empty() || varInFile[0] < 1) {
                             std::cerr << "Skipping '" << name << "' (not present in this file/zone)\n";
                             continue;
                         }
 
-
-                        {
-                            std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                        tecio_locked([&] {
                             if (tecVarGetName(fh, varInFile[0], &varName) != 0)
                                 varName = nullptr;
-                        }
+                        });
 
                         if (varInFile.size() == 1) {
-                            {
-                                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                                tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
-                            }
+                            tecio_locked([&] { tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues); });
 
                             Vec<Scalar, 1>::ptr field = readVariables(fh, numValues, zone, varInFile[0]);
 
                             if (field) {
                                 // 0 = cell-centered (element), 1 = nodal (vertex)
                                 int32_t loc = 0;
-                                {
-                                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                                    tecZoneVarGetValueLocation(fh, zone, varInFile[0], &loc);
-                                }
-
+                                tecio_locked([&] { tecZoneVarGetValueLocation(fh, zone, varInFile[0], &loc); });
 
                                 field->addAttribute(vistle::attribute::Species, name);
                                 field->setMapping(loc == 0 ? vistle::DataBase::Element : vistle::DataBase::Vertex);
@@ -901,10 +753,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             }
 
                             if (varName) {
-                                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                                tecStringFree(&varName);
+                                tecio_locked([&] { tecStringFree(&varName); });
                             }
-
 
                         } else if (varInFile.size() > 1) {
                             // combined vector (X,Y,Z)
@@ -915,34 +765,24 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                                 continue;
                             }
 
-
-                            //std::cout << "Reading combined variable: " << name << " on port: " << var << std::endl;
-
-                            {
-                                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                                tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues);
-                            }
+                            tecio_locked([&] { tecZoneVarGetNumValues(fh, zone, varInFile[0], &numValues); });
                             const int startIndex = 1;
 
                             std::vector<float> xValues(numValues), yValues(numValues), zValues(numValues);
-                            {
-                                std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                            tecio_locked([&] {
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[0], startIndex, numValues, xValues.data());
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[1], startIndex, numValues, yValues.data());
                                 tecZoneVarGetFloatValues(fh, zone, varInFile[2], startIndex, numValues, zValues.data());
-                            }
+                            });
 
                             Vec<Scalar, 3>::ptr field = combineVarstoOneOutput(xValues, yValues, zValues, numValues);
                             if (field) {
-                                // decide mapping from location of first component (all three *should* match)
                                 int32_t locX = 0, locY = 0, locZ = 0;
-                                {
-                                    std::lock_guard<std::mutex> lk(g_tecio_mutex);
+                                tecio_locked([&] {
                                     tecZoneVarGetValueLocation(fh, zone, varInFile[0], &locX);
                                     tecZoneVarGetValueLocation(fh, zone, varInFile[1], &locY);
                                     tecZoneVarGetValueLocation(fh, zone, varInFile[2], &locZ);
-                                }
-
+                                });
 
                                 if (locX != locY || locX != locZ) {
                                     std::cerr << "Warning: vector components have mixed locations (" << locX << ","
@@ -957,8 +797,7 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                             }
 
                             if (varName) {
-                                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                                tecStringFree(&varName);
+                                tecio_locked([&] { tecStringFree(&varName); });
                             }
                         }
                     }
@@ -967,12 +806,8 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
             else {
                 std::cerr << "Tecplot does not contain solution variables but just a grid. " << std::endl;
             }
-            {
-                std::lock_guard<std::mutex> lk(g_tecio_mutex);
-                tecFileReaderClose(&fh);
-            }
-        } //close try
-        catch (const std::exception &e) {
+            tecio_locked([&] { tecFileReaderClose(&fh); });
+        } catch (const std::exception &e) {
             sendError("Failed to read file %s: %s", filename.c_str(), e.what());
             return false;
         }

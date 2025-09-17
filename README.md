@@ -15,7 +15,6 @@ License
 
 Vistle source code is licensed under the LGPL v2.1. See `LICENSE.txt` for details. This does not apply to the subdirectory `lib/3rdparty`.
 
-
 Installation
 ------------
 
