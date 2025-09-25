@@ -41,11 +41,12 @@ static std::mutex g_tecio_mutex; // serialize TecIO open/close calls per process
 
 // Helper to wrap TecIO calls with mutex locking
 template<typename Func>
-auto tecio_locked(Func &&func) -> decltype(func()) {
+auto tecio_locked(Func &&func) -> decltype(func())
+{
     std::lock_guard<std::mutex> lk(g_tecio_mutex);
     return func();
 }
-}
+} // namespace
 
 
 MODULE_MAIN(ReadSubzoneTecplot)
@@ -74,7 +75,7 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
 
 
     setParallelizationMode(Serial);
-    //setParallelizationMode(ParallelizeTimeAndBlocks); 
+    //setParallelizationMode(ParallelizeTimeAndBlocks);
 
     std::vector<std::string> varChoices{Reader::InvalidChoice};
     for (int i = 0; i < NumPorts; i++) {
@@ -331,7 +332,6 @@ StructuredGrid::ptr ReadSubzoneTecplot::createStructuredGrid(void *fh, int32_t i
     int64_t n = 0;
 
 
- 
     int64_t numValues = 0;
 
     // X
