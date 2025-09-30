@@ -541,7 +541,7 @@ struct ComputeOutput {
         } else if (m_data.m_isPoly) {
             const Index CellBegin = m_data.m_el[CellNr];
             const Index CellEnd = m_data.m_el[CellNr + 1];
-            const auto &cl = &m_data.m_cl[0];
+            const auto *cl = &m_data.m_cl[0];
 
             Index outIdx = m_data.m_LocationList[ValidCellIndex];
             Index c1 = cl[CellEnd - 1];
@@ -994,10 +994,11 @@ Index Leveller::calculateSurface(Data &data)
 bool Leveller::process()
 {
 #ifndef CUTTINGSURFACE
-    Vec<Scalar>::const_ptr dataobj = Vec<Scalar>::as(m_data);
-    if (!dataobj)
+    if (!m_data)
         return false;
-    auto bounds = dataobj->getMinMax();
+    if (m_data->getSize() == 0)
+        return true;
+    std::pair<Vector1, Vector1> bounds = m_data->getMinMax();
     if (bounds.first[0] <= bounds.second[0]) {
         if (m_isoValue < bounds.first[0] || m_isoValue > bounds.second[0])
             return true;
@@ -1038,20 +1039,21 @@ bool Leveller::process()
                 val += dist;
             }
         }
-        coords[2] = &m_lg->z()[0];
+        coords[2] = m_lg->z().data();
     } else if (m_rect) {
         for (int i = 0; i < 3; ++i)
-            coords[i] = &m_rect->coords(i)[0];
+            coords[i] = m_rect->coords(i).data();
     } else if (m_str) {
         for (int i = 0; i < 3; ++i)
-            coords[i] = &m_str->x(i)[0];
+            coords[i] = m_str->x(i).data();
     }
 #ifdef CUTTINGSURFACE
-    IsoDataFunctor isofunc =
-        m_coord ? m_isocontrol.newFunc(m_grid->getTransform(), &m_coord->x()[0], &m_coord->y()[0], &m_coord->z()[0])
-                : m_isocontrol.newFunc(m_grid->getTransform(), dims, coords[0], coords[1], coords[2]);
+    IsoDataFunctor isofunc = m_coord
+                                 ? m_isocontrol.newFunc(m_grid->getTransform(), m_coord->x().data(),
+                                                        m_coord->y().data(), m_coord->z().data())
+                                 : m_isocontrol.newFunc(m_grid->getTransform(), dims, coords[0], coords[1], coords[2]);
 #else
-    IsoDataFunctor isofunc = m_isocontrol.newFunc(m_grid->getTransform(), &dataobj->x()[0]);
+    IsoDataFunctor isofunc = m_isocontrol.newFunc(m_grid->getTransform(), m_data->x().data());
 #endif
 
     std::unique_ptr<HostData> HD_ptr;

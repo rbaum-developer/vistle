@@ -372,18 +372,18 @@ template<class V>
 void updateMinMax(typename V::const_ptr &v, Scalar &min, Scalar &max)
 {
     auto mmv = v->getMinMax();
-    std::tuple<Scalar, Scalar> mm{mmv.first[0], mmv.second[0]};
-    if (min > std::get<0>(mm))
-        min = std::get<0>(mm);
-    if (max < std::get<1>(mm))
-        max = std::get<1>(mm);
+    if (mmv.first[0] <= mmv.second[0]) {
+        std::tuple<Scalar, Scalar> mm{mmv.first[0], mmv.second[0]};
+        if (min > std::get<0>(mm))
+            min = std::get<0>(mm);
+        if (max < std::get<1>(mm))
+            max = std::get<1>(mm);
+    }
 }
 } // namespace
 
 void Color::getMinMax(vistle::DataBase::const_ptr object, vistle::Scalar &min, vistle::Scalar &max)
 {
-    const ssize_t numElements = object->getSize();
-
     if (Vec<Byte>::const_ptr scal = Vec<Byte>::as(object)) {
         updateMinMax<Vec<Byte>>(scal, min, max);
     } else if (Vec<Index>::const_ptr scal = Vec<Index>::as(object)) {
@@ -391,15 +391,16 @@ void Color::getMinMax(vistle::DataBase::const_ptr object, vistle::Scalar &min, v
     } else if (Vec<Scalar>::const_ptr scal = Vec<Scalar>::as(object)) {
         updateMinMax<Vec<Scalar>>(scal, min, max);
     } else if (Vec<Scalar, 3>::const_ptr vec = Vec<Scalar, 3>::as(object)) {
-        const vistle::Scalar *x = &vec->x()[0];
-        const vistle::Scalar *y = &vec->y()[0];
-        const vistle::Scalar *z = &vec->z()[0];
+        const vistle::Scalar *x = vec->x().data();
+        const vistle::Scalar *y = vec->y().data();
+        const vistle::Scalar *z = vec->z().data();
 #ifdef USE_OPENMP
 #pragma omp parallel
 #endif
         {
             Scalar tmin = std::numeric_limits<Scalar>::max();
             Scalar tmax = -std::numeric_limits<Scalar>::max();
+            const ssize_t numElements = object->getSize();
 #ifdef USE_OPENMP
 #pragma omp for
 #endif
@@ -432,27 +433,27 @@ void Color::binData(vistle::DataBase::const_ptr object, std::vector<unsigned lon
     unsigned long *bins = binsVec.data();
 
     if (Vec<Byte>::const_ptr scal = Vec<Byte>::as(object)) {
-        const vistle::Byte *x = &scal->x()[0];
+        const vistle::Byte *x = scal->x().data();
         for (ssize_t index = 0; index < numElements; index++) {
             const int bin = clamp<int>((x[index] - m_min) / w * numBins, 0, numBins - 1);
             ++bins[bin];
         }
     } else if (Vec<Index>::const_ptr scal = Vec<Index>::as(object)) {
-        const vistle::Index *x = &scal->x()[0];
+        const vistle::Index *x = scal->x().data();
         for (ssize_t index = 0; index < numElements; index++) {
             const int bin = clamp<int>((x[index] - m_min) / w * numBins, 0, numBins - 1);
             ++bins[bin];
         }
     } else if (Vec<Scalar>::const_ptr scal = Vec<Scalar>::as(object)) {
-        const vistle::Scalar *x = &scal->x()[0];
+        const vistle::Scalar *x = scal->x().data();
         for (ssize_t index = 0; index < numElements; index++) {
             const int bin = clamp<int>((x[index] - m_min) / w * numBins, 0, numBins - 1);
             ++bins[bin];
         }
     } else if (Vec<Scalar, 3>::const_ptr vec = Vec<Scalar, 3>::as(object)) {
-        const vistle::Scalar *x = &vec->x()[0];
-        const vistle::Scalar *y = &vec->y()[0];
-        const vistle::Scalar *z = &vec->z()[0];
+        const vistle::Scalar *x = vec->x().data();
+        const vistle::Scalar *y = vec->y().data();
+        const vistle::Scalar *z = vec->z().data();
         for (ssize_t index = 0; index < numElements; index++) {
             const Scalar v = Vector3(x[index], y[index], z[index]).norm();
             const int bin = clamp<int>((v - m_min) / w * numBins, 0, numBins - 1);
@@ -610,7 +611,7 @@ vistle::Texture1D::ptr Color::addTexture(vistle::DataBase::const_ptr object, con
     const Scalar invRange = 1.f / (max - min);
 
     vistle::Texture1D::ptr tex(new vistle::Texture1D(cmap.width, min, max));
-    unsigned char *pix = &tex->pixels()[0];
+    unsigned char *pix = tex->pixels().data();
     for (size_t index = 0; index < cmap.width * 4; index++)
         pix[index] = cmap.data[index];
 
@@ -619,7 +620,7 @@ vistle::Texture1D::ptr Color::addTexture(vistle::DataBase::const_ptr object, con
     auto tc = tex->coords().data();
 
     if (Vec<Scalar>::const_ptr f = Vec<Scalar>::as(object)) {
-        const vistle::Scalar *x = &f->x()[0];
+        const vistle::Scalar *x = f->x().data();
 
 #ifdef USE_OPENMP
 #pragma omp parallel for
@@ -627,7 +628,7 @@ vistle::Texture1D::ptr Color::addTexture(vistle::DataBase::const_ptr object, con
         for (ssize_t index = 0; index < numElem; index++)
             tc[index] = (x[index] - min) * invRange;
     } else if (Vec<Index>::const_ptr f = Vec<Index>::as(object)) {
-        const vistle::Index *x = &f->x()[0];
+        const vistle::Index *x = f->x().data();
 
 #ifdef USE_OPENMP
 #pragma omp parallel for
@@ -635,7 +636,7 @@ vistle::Texture1D::ptr Color::addTexture(vistle::DataBase::const_ptr object, con
         for (ssize_t index = 0; index < numElem; index++)
             tc[index] = (x[index] - min) * invRange;
     } else if (Vec<Byte>::const_ptr f = Vec<Byte>::as(object)) {
-        const vistle::Byte *x = &f->x()[0];
+        const vistle::Byte *x = f->x().data();
 
 #ifdef USE_OPENMP
 #pragma omp parallel for
@@ -643,9 +644,9 @@ vistle::Texture1D::ptr Color::addTexture(vistle::DataBase::const_ptr object, con
         for (ssize_t index = 0; index < numElem; index++)
             tc[index] = (x[index] - min) * invRange;
     } else if (Vec<Scalar, 3>::const_ptr f = Vec<Scalar, 3>::as(object)) {
-        const vistle::Scalar *x = &f->x()[0];
-        const vistle::Scalar *y = &f->y()[0];
-        const vistle::Scalar *z = &f->z()[0];
+        const vistle::Scalar *x = f->x().data();
+        const vistle::Scalar *y = f->y().data();
+        const vistle::Scalar *z = f->z().data();
 
 #ifdef USE_OPENMP
 #pragma omp parallel for
@@ -998,7 +999,7 @@ void Color::sendColorMap()
 #else
         vistle::Texture1D::ptr tex(new vistle::Texture1D(m_colors->width, m_min, m_max));
 #endif
-        unsigned char *pix = &tex->pixels()[0];
+        unsigned char *pix = tex->pixels().data();
         for (size_t index = 0; index < m_colors->width * 4; index++)
             pix[index] = m_colors->data[index];
         tex->addAttribute(attribute::Species, m_species);
