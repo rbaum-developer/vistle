@@ -23,6 +23,7 @@
 // Each of the ANSYS program's binary files contains a standard, 100-integer file header that
 // describes the file contents.  The header contains the items listed below, always in the following order:
 
+#include <cstring> // for memset
 struct BinHeader {
     int filenum_; // Item 1 - File number: 12=standard header
     // int format_;                               // File Format: 0=internal, 1=external (old)

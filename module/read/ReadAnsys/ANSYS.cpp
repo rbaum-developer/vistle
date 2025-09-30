@@ -17,6 +17,12 @@
 
 #include "ANSYS.h"
 #include "EType.h"
+#include <vistle/core/standardattributes.h>
+#include <vistle/core/celltypes.h>
+#include <vistle/core/unstr.h>
+#include <vistle/module/module.h>
+
+using namespace vistle;
 
 ANSYS *ANSYS::ansys_ = NULL;
 
@@ -35,7 +41,7 @@ ANSYS::ANSYS()
     memset(ANSYSNodes_, 0, sizeof(int) * LIB_SIZE);
     int elType;
     for (elType = 0; elType < LIB_SIZE; ++elType) {
-        m_vistleType[elType] = TYPE_NONE;
+        m_vistleType[elType] = UnstructuredGrid::NONE;
         StressSupport_[elType] = NO_STRESS;
     }
 
@@ -100,7 +106,7 @@ ANSYS::ANSYS()
     // Supported by COVISE but not implemented
 
     // MASS21 - Structural Mass
-    m_vistleType[21] = TYPE_POINT;
+    m_vistleType[21] = UnstructuredGrid::POINT;
 
     // BEAM23 - 2D Plastic Beam (legacy element)
     m_vistleType[23] = UnstructuredGrid::BAR;
@@ -761,7 +767,7 @@ ANSYS::ANSYS()
 
 int ANSYS::ElementType(int routine, int noNodes)
 {
-    int ret = TYPE_NONE;
+    int ret = UnstructuredGrid::NONE;
 
     // For the moment we will not consider target elements
     if (m_vistleType[routine] != TYPE_TARGET && m_vistleType[routine] != TYPE_TARGET_2D) {
@@ -780,18 +786,18 @@ int ANSYS::ElementType(int routine, int noNodes)
         // We must distinguish between tetrahedra and rectangles!!!!! TODO
         case 4:
             if (m_vistleType[routine] == TYPE_4_NODE_PLANE || m_vistleType[routine] == TYPE_8_NODE_PLANE)
-                ret = TYPE_QUAD;
+                ret = UnstructuredGrid::QUAD;
             else
-                ret = TYPE_TETRAHEDER;
+                ret = UnstructuredGrid::TETRAHEDRON;
             break;
         case 5:
-            ret = TYPE_PYRAMID;
+            ret = UnstructuredGrid::PYRAMID;
             break;
         case 6:
-            ret = TYPE_PRISM;
+            ret = UnstructuredGrid::PRISM;
             break;
         case 8:
-            ret = TYPE_HEXAEDER;
+            ret = UnstructuredGrid::HEXAHEDRON;
             break;
         }
     }
@@ -799,19 +805,19 @@ int ANSYS::ElementType(int routine, int noNodes)
     else {
         switch (noNodes) {
         case 1:
-            ret = TYPE_POINT;
+            ret = UnstructuredGrid::POINT;
             break;
         case 2:
-            ret = TYPE_BAR;
+            ret = UnstructuredGrid::BAR;
             break;
         case 3:
-            ret = TYPE_TRIANGLE;
+            ret = UnstructuredGrid::TRIANGLE;
             break;
         case 4:
-            ret = TYPE_QUAD;
+            ret = UnstructuredGrid::QUAD;
             break;
         default:
-            cerr << "Could not identify target shape" << endl;
+            std::cerr << "Could not identify target shape" << std::endl;
             break;
         }
     }

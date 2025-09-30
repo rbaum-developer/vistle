@@ -5,11 +5,14 @@
 
 #include <vector>
 #include <string>
-
-#include "ReadRST.h"
 #include "Map1D.h"
 #include "DOFOptions.h"
+#include "AnsysConstants.h"
 
+// Forward declaration to avoid circular dependency
+class ReadRST;
+
+namespace vistle {
 class ReadAnsys: public vistle::Reader {
 public:
     ReadAnsys(const std::string &name, int moduleID, mpi::communicator comm);
@@ -20,13 +23,14 @@ public:
     bool read(vistle::Reader::Token &token, int timestep = -1, int block = -1) override;
     bool prepareRead() override;
     bool finishRead() override;
-    static const int V_OFFSET = 500;
-    static const int EX_OFFSET = 1000;
+    // Keep constants for backward compatibility, now referencing shared constants
+    static const int V_OFFSET = vistle::ansys::V_OFFSET;
+    static const int EX_OFFSET = vistle::ansys::EX_OFFSET;
 
 private:
     DOFOptions m_DOFOptions;
     bool m_inMapLoading;
-    ReadRST m_readRST;
+    ReadRST *m_readRST;
     int m_open_err;
     int SetNodeChoices();
 
@@ -38,5 +42,5 @@ private:
     vistle::IntParameter *m_vertex_based, *m_outputDecode;
     vistle::Port *m_grid_out, *m_field, *m_materials;
 };
-
+} // namespace vistle
 #endif

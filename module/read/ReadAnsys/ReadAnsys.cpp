@@ -1,4 +1,5 @@
 #include "ReadAnsys.h"
+#include "ReadRST.h"
 #include <boost/algorithm/string/predicate.hpp>
 #include <vistle/core/lines.h>
 #include <vistle/core/object.h>
@@ -12,10 +13,6 @@
 #include <boost/mpi/communicator.hpp>
 
 #include <vistle/util/filesystem.h>
-
-#include "ReadRST.h"
-#include "ReadRST.cpp"
-#include "DOFOptions.h"
 
 using namespace vistle;
 
@@ -52,7 +49,8 @@ bool isCollectionFile(const std::string &fn)
     return false;
 }
 
-ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator comm): Reader(name, moduleID, comm)
+ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator comm)
+: Reader(name, moduleID, comm), m_readRST(new ReadRST())
 {
     m_filename = addStringParameter("filename", "name of .rst file", "", Parameter::ExistingFilename);
     setParameterFilters(m_filename, "ANSYS Result Files (*.rst;*.rfl;*.rth;*.rmg)");
@@ -117,7 +115,9 @@ ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator co
 }
 
 ReadAnsys::~ReadAnsys()
-{}
+{
+    delete m_readRST;
+}
 
 bool ReadAnsys::examine(const vistle::Parameter *param)
 {
@@ -175,12 +175,12 @@ int ReadAnsys::SetNodeChoices()
     std::vector<std::string> Choices;
     std::vector<int> variable_codes;
     std::string filename = m_filename->getValue();
-    m_open_err = m_readRST.OpenFile(filename);
+    m_open_err = m_readRST->OpenFile(filename);
     // loop over rstheader_.numsets_ and accumulate
     // in variable_codes non repeated codes
     int numset;
-    for (numset = 1; numset <= m_readRST.getNumTimeSteps(); ++numset) {
-        int ErrorReadSHDR = m_readRST.ReadSHDR(numset);
+    for (numset = 1; numset <= m_readRST->getNumTimeSteps(); ++numset) {
+        int ErrorReadSHDR = m_readRST->ReadSHDR(numset);
         if (ErrorReadSHDR) {
             sendError("SetNodeChoices: Error in ReadSHDR");
             return ErrorReadSHDR;
@@ -188,34 +188,34 @@ int ReadAnsys::SetNodeChoices()
         // the important info is in solheader_.numdofs_,
         // solheader_.dof_, solheader_.numexdofs_, solheader_.exdof_
         int new_dof;
-        for (new_dof = 0; new_dof < m_readRST.solheader_.numdofs_; ++new_dof) {
+        for (new_dof = 0; new_dof < m_readRST->solheader_.numdofs_; ++new_dof) {
             size_t old_dof;
             int repeated = 0;
             for (old_dof = 0; old_dof < variable_codes.size(); ++old_dof) {
-                if (m_readRST.solheader_.dof_[new_dof] == variable_codes[old_dof]) {
+                if (m_readRST->solheader_.dof_[new_dof] == variable_codes[old_dof]) {
                     // dof is repeated
                     repeated = 1;
                     break;
                 }
             }
             if (!repeated) {
-                variable_codes.push_back(m_readRST.solheader_.dof_[new_dof]);
+                variable_codes.push_back(m_readRST->solheader_.dof_[new_dof]);
             }
         }
         // now add extra dofs
         int extra_new_dof;
-        for (extra_new_dof = 0; extra_new_dof < m_readRST.solheader_.numexdofs_; ++extra_new_dof) {
+        for (extra_new_dof = 0; extra_new_dof < m_readRST->solheader_.numexdofs_; ++extra_new_dof) {
             size_t old_dof;
             int repeated = 0;
             for (old_dof = 0; old_dof < variable_codes.size(); ++old_dof) {
-                if (m_readRST.solheader_.exdof_[extra_new_dof] == variable_codes[old_dof] - EX_OFFSET) {
+                if (m_readRST->solheader_.exdof_[extra_new_dof] == variable_codes[old_dof] - EX_OFFSET) {
                     // dof is repeated
                     repeated = 1;
                     break;
                 }
             }
             if (!repeated) {
-                variable_codes.push_back(m_readRST.solheader_.exdof_[extra_new_dof] + EX_OFFSET);
+                variable_codes.push_back(m_readRST->solheader_.exdof_[extra_new_dof] + EX_OFFSET);
             }
         }
     }

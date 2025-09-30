@@ -5,11 +5,10 @@
 
  * License: LGPL 2+ */
 
+#include "ReadAnsys.h"
 #include "ReadRST.h"
-#include <util/coviseCompat.h>
 #include "ANSYS.h"
-#include <api/coModule.h>
-using namespace covise;
+using namespace vistle;
 
 #ifndef _WIN32
 #include <sys/mman.h>
@@ -35,26 +34,26 @@ int ReadRST::ReadDerived(const std::string &filename, int num, DerivedType deriv
     // 4    : Read Error Element equivalence
     // 5    : Read Error Time table
     case 0:
-        //      printf("Open file OK\n");
+        //      printf("Open file OK" << std::endl;
         break;
 
     case 1:
-        Covise::sendError("Open file: file not found \n");
+        std::cerr << "Open file: file not found" << std::endl;
         break;
     case 2:
-        Covise::sendError("Open file: Read Error, header \n");
+        std::cerr << "Open file: Read Error, header" << std::endl;
         break;
 
     case 3:
-        Covise::sendError("Open file: Read Error, nodal equ tabular \n");
+        std::cerr << "Open file: Read Error, nodal equ tabular" << std::endl;
         break;
 
     case 4:
-        Covise::sendError("Open file: Read Error, element equi tabular \n");
+        std::cerr << "Open file: Read Error, element equi tabular" << std::endl;
         break;
 
     case 5:
-        Covise::sendError("Open file: Read Error, time table \n");
+        std::cerr << "Open file: Read Error, time table" << std::endl;
         break;
     }
     if (problems)
@@ -68,30 +67,30 @@ int ReadRST::ReadDerived(const std::string &filename, int num, DerivedType deriv
     // 5        : Read Error DOFs
     // 6        : Read Error exDOFs
     case 0:
-        //      printf("GetData : OK\n");
+        //      printf("GetData : OK" << std::endl;
         break;
 
     case 1:
-        Covise::sendError("GetData : file not open\n");
+        std::cerr << "GetData : file not open" << std::endl;
         break;
 
     case 2:
-        Covise::sendError("GetData : read error: DSI\n");
+        std::cerr << "GetData : read error: DSI" << std::endl;
         break;
     case 3:
-        Covise::sendError("GetData : num exeeds limits\n");
+        std::cerr << "GetData : num exeeds limits" << std::endl;
         break;
 
     case 4:
-        Covise::sendError("GetData : read error solution header\n");
+        std::cerr << "GetData : read error solution header" << std::endl;
         break;
 
     case 5:
-        Covise::sendError("GetData : read error DOFs\n");
+        std::cerr << "GetData : read error DOFs" << std::endl;
         break;
 
     case 6:
-        Covise::sendError("GetData : read error exDOF\n");
+        std::cerr << "GetData : read error exDOF" << std::endl;
         break;
     }
     if (problems)
@@ -105,30 +104,30 @@ int ReadRST::ReadDerived(const std::string &filename, int num, DerivedType deriv
     // 5        : Read Error Elementtabelle
     // 6        : Read Error Elemente
     case 0:
-        //      printf("GetNodes : ok\n");
+        //      printf("GetNodes : ok" << std::endl;
         break;
 
     case 1:
-        Covise::sendError("GetNodes : read error geo\n");
+        std::cerr << "GetNodes : read error geo" << std::endl;
         break;
 
     case 2:
-        Covise::sendError("GetNodes : read error nodes\n");
+        std::cerr << "GetNodes : read error nodes" << std::endl;
         break;
     case 3:
-        Covise::sendError("GetNodes : read error element description\n");
+        std::cerr << "GetNodes : read error element description" << std::endl;
         break;
 
     case 4:
-        Covise::sendError("GetNodes : read error ety\n");
+        std::cerr << "GetNodes : read error ety" << std::endl;
         break;
 
     case 5:
-        Covise::sendError("GetNodes : read error element tabular\n");
+        std::cerr << "GetNodes : read error element tabular" << std::endl;
         break;
 
     case 6:
-        Covise::sendError("GetNodes : read error elements\n");
+        std::cerr << "GetNodes : read error elements" << std::endl;
         break;
     }
     return (problems);
@@ -168,7 +167,7 @@ int ReadRST::GetDatasetDerived(int num, DerivedType derType)
     // but first read record length...
     if (solheader_.ptr_elemsol_ == 0) // no DOF data at all
     {
-        fprintf(stderr, "no DOF data at all!\n");
+        std::cerr << "no DOF data at all!" << std::endl;
         DerivedData_ = new DerivedData;
         DerivedData_->anz_ = 0;
         DerivedData_->data_ = NULL;
@@ -218,7 +217,7 @@ int ReadRST::GetDatasetDerived(int num, DerivedType derType)
         mmap_len_ = solheader_.next_offset_ - mmap_off_;
         mmap_ini_ = mmap(0, mmap_len_, PROT_READ, MAP_SHARED, file_des_, mmap_off_);
         if (mmap_ini_ == MAP_FAILED) {
-            Covise::sendWarning("Could not map file to memory");
+            std::cerr << "Could not map file to memory" << std::endl;
             return 2;
         }
 #endif
@@ -299,7 +298,7 @@ int ReadRST::GetDatasetDerived(int num, DerivedType derType)
     }
     // We never reach this point
     else {
-        Covise::sendInfo("No derived data");
+        std::cout << "No derived data" << std::endl;
     }
 
     DerivedData_ = new DerivedData;
@@ -392,7 +391,7 @@ int ReadRST::GetDatasetDerived(int num, DerivedType derType)
     if (mmap_flag_) {
 #ifndef WIN32
         if (munmap(mmap_ini_, mmap_len_)) {
-            Covise::sendWarning("Could not unmap file from memory");
+            std::cerr << "Could not unmap file from memory" << std::endl;
             return 2;
         }
 #endif

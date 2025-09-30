@@ -6,7 +6,7 @@
  * License: LGPL 2+ */
 
 #include "Node.h"
-#include <util/coviseCompat.h>
+#include <cmath>
 
 Node::Node()
 {

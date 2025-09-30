@@ -21,7 +21,7 @@
 
 //#include <do/coDoUnstructuredGrid.h>
 #include <vistle/core/object.h>
-#include <vistle/core/unstructuredgrid.h>
+#include <vistle/core/unstr.h>
 
 class ANSYS {
 public:

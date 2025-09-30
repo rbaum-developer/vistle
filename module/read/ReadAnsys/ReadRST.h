@@ -29,7 +29,16 @@
 #include "GeometryHeader.h"
 #include "RstHeader.h"
 #include "SolutionHeader.h"
+#include "AnsysConstants.h"
 #include <vector>
+#include <string>
+#include <cstdio>
+
+// Forward declaration for byteSwap
+namespace vistle {
+template<typename T>
+void byteSwap(T &t);
+}
 
 class ReadRST {
 public:
