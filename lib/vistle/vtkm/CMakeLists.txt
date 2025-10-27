@@ -1,4 +1,4 @@
-set(SOURCES convert.cpp convert_topology.cpp convert_worklets.cpp module_status.cpp implicit_function_controller.cpp vtkm_module.cpp)
+set(SOURCES convert.cpp convert_topology.cpp module_status.cpp implicit_function_controller.cpp vtkm_module.cpp)
 
 set(HEADERS
     export.h
@@ -7,11 +7,12 @@ set(HEADERS
     convert_worklets.h
     module_status.h
     implicit_function_controller.h
-    vtkm_module.h)
+    vtkm_module.h
+    ArrayHandleCountingModulus.h)
 
 vistle_add_library(vistle_viskores EXPORT ${SOURCES} ${HEADERS})
 target_include_directories(vistle_viskores SYSTEM PUBLIC ${VISKORES_INCLUDE_DIRS})
-viskores_add_target_information(vistle_viskores MODIFY_CUDA_FLAGS DEVICE_SOURCES convert_worklets.cpp)
+viskores_add_target_information(vistle_viskores MODIFY_CUDA_FLAGS DEVICE_SOURCES convert_topology.cpp)
 
 vistle_target_link_libraries(
     vistle_viskores
@@ -20,5 +21,4 @@ vistle_target_link_libraries(
     PRIVATE
     vistle_core
     vistle_module
-    viskores::cont
     viskores::filter)

@@ -10,6 +10,7 @@ set(util_SOURCES
     fileio.cpp
     findself.cpp
     hostname.cpp
+    ipaddress.cpp
     listenv4v6.cpp
     netpbmimage.cpp
     sleep.cpp
@@ -38,6 +39,7 @@ set(util_HEADERS
     filesystem.h
     findself.h
     hostname.h
+    ipaddress.h
     listenv4v6.h
     math.h
     netpbmimage.h
@@ -79,10 +81,6 @@ if(VISTLE_PROFILE_NVTX)
 elseif(VISTLE_PROFILE_CHROME)
     target_compile_definitions(vistle_util PUBLIC VISTLE_PROFILE_CHROME)
     target_include_directories(vistle_util SYSTEM PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/3rdparty/profile_chrome> $<INSTALL_INTERFACE:include>)
-endif()
-
-if(BOTAN_VERSION VERSION_GREATER_EQUAL 3)
-    set_property(TARGET vistle_util PROPERTY CXX_STANDARD 20)
 endif()
 
 if(HWLOC_FOUND)

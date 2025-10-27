@@ -1,11 +1,19 @@
 #include "convert.h"
 #include "convert_topology.h"
 
+#include <viskores/cont/ArrayHandleCartesianProduct.h>
+#include <viskores/cont/ArrayHandleCompositeVector.h>
+#include <viskores/cont/ArrayHandleCounting.h>
 #include <viskores/cont/ArrayHandleExtractComponent.h>
+#include <viskores/cont/ArrayHandleSOA.h>
+#include <viskores/cont/ArrayHandleUniformPointCoordinates.h>
+#include "ArrayHandleCountingModulus.h"
 
+#include <vistle/core/celltypes.h>
 #include <vistle/core/scalars.h>
 #include <vistle/core/uniformgrid.h>
 #include <vistle/core/rectilineargrid.h>
+#include <vistle/core/layergrid.h>
 #include <vistle/core/points.h>
 #include <vistle/core/lines.h>
 #include <vistle/core/triangles.h>
@@ -16,7 +24,6 @@
 #include <vistle/core/shm_obj_ref_impl.h>
 
 #include <boost/mpl/for_each.hpp>
-
 
 namespace vistle {
 
@@ -92,7 +99,7 @@ ModuleStatusPtr vtkmApplyRadius(viskores::cont::DataSet &vtkmDataset, Object::co
 
 ModuleStatusPtr vtkmGetRadius(const viskores::cont::DataSet &dataset, Object::ptr &result)
 {
-    auto radius = vtkmGetField(dataset, "_radius");
+    auto radius = vtkmGetField(dataset, "_radius", DataBase::Unspecified, false);
     if (!radius) {
         return Success();
     }
@@ -133,9 +140,9 @@ ModuleStatusPtr vtkmApplyNormals(viskores::cont::DataSet &vtkmDataset, Object::c
 
 ModuleStatusPtr vtkmGetNormals(const viskores::cont::DataSet &dataset, Object::ptr &result)
 {
-    auto normals = vtkmGetField(dataset, "normals");
+    auto normals = vtkmGetField(dataset, "normals", DataBase::Unspecified, false);
     if (!normals) {
-        normals = vtkmGetField(dataset, "Normals");
+        normals = vtkmGetField(dataset, "Normals", DataBase::Unspecified, false);
     }
     if (!normals) {
         return Success();
@@ -189,6 +196,19 @@ ModuleStatusPtr vtkmSetGrid(viskores::cont::DataSet &vtkmDataset, vistle::Object
 
         viskores::cont::ArrayHandleCartesianProduct rectilinearCoordinates(xc, yc, zc);
         auto coordinateSystem = viskores::cont::CoordinateSystem("rectilinear", rectilinearCoordinates);
+        vtkmDataset.AddCoordinateSystem(coordinateSystem);
+    } else if (auto lg = LayerGrid::as(grid)) {
+        auto nx = lg->getNumDivisions(0);
+        auto ny = lg->getNumDivisions(1);
+        auto nz = lg->getNumDivisions(2);
+        auto sz = nx * ny * nz;
+        const auto *min = lg->min(), *dist = lg->dist();
+        auto xc = viskores::cont::ArrayHandleCountingModulus<vistle::Scalar>(min[0], dist[0], sz, nx);
+        auto yc = viskores::cont::ArrayHandleCountingModulus<vistle::Scalar>(min[1], dist[1], sz, ny, nx);
+        auto zc = lg->z().handle();
+
+        viskores::cont::ArrayHandleCompositeVector heightfieldLayerCoordinates(xc, yc, zc);
+        auto coordinateSystem = viskores::cont::CoordinateSystem("heightfieldlayers", heightfieldLayerCoordinates);
         vtkmDataset.AddCoordinateSystem(coordinateSystem);
     } else {
         return Error("Found unsupported grid type while attempting to convert Vistle grid to Viskores dataset.");
@@ -258,28 +278,91 @@ ModuleStatusPtr vtkmAddField(viskores::cont::DataSet &vtkmDataSet, const vistle:
     return Error("Encountered an unsupported field type while attempting to convert Vistle field to Viskores field.");
 }
 
+template<typename ViskoresCoordType>
+void vtkmGetCoords(const viskores::cont::UnknownArrayHandle &unknown, const std::shared_ptr<Coords> &coords)
+{
+    auto vtkmCoord = unknown.AsArrayHandle<ViskoresCoordType>();
+    for (int d = 0; d < 3; ++d) {
+        auto x = viskores::cont::make_ArrayHandleExtractComponent(vtkmCoord, d);
+        coords->d()->x[d]->setHandle(x);
+    }
+}
+
+// Specialization for SoA point coordinates
+template<>
+void vtkmGetCoords<viskores::cont::ArrayHandleSOA<viskores::Vec3f>>(const viskores::cont::UnknownArrayHandle &unknown,
+                                                                    const std::shared_ptr<Coords> &coords)
+{
+    auto vtkmCoord = unknown.AsArrayHandle<viskores::cont::ArrayHandleSOA<viskores::Vec3f>>();
+    for (int d = 0; d < 3; ++d) {
+        auto x = vtkmCoord.GetArray(d);
+        coords->d()->x[d]->setHandle(x);
+    }
+}
 
 Object::ptr vtkmGetGeometry(const viskores::cont::DataSet &dataset)
 {
     Object::ptr result = vtkmGetTopology(dataset);
 
+    if (auto rg = RectilinearGrid::as(result)) {
+        auto uPointCoordinates = dataset.GetCoordinateSystem().GetData();
+        viskores::cont::UnknownArrayHandle unknown(uPointCoordinates);
+        if (unknown.CanConvert<AHCP<vistle::Scalar>>()) {
+            auto vtkmCoord = unknown.AsArrayHandle<AHCP<vistle::Scalar>>();
+            AH<vistle::Scalar> ah[3] = {vtkmCoord.GetFirstArray(), vtkmCoord.GetSecondArray(),
+                                        vtkmCoord.GetThirdArray()};
+            for (int i = 0; i < 3; ++i) {
+                auto xc = ah[i];
+                viskores::cont::UnknownArrayHandle xu(xc);
+                auto x = xu.AsArrayHandle<AH<vistle::Scalar>>();
+                rg->d()->coords[i]->setHandle(x);
+            }
+        } else {
+            std::cerr << "Error while converting Viskores rectilinear grid to Vistle: Unsupported point coordinate "
+                         "array type:\n"
+                      << "--> Array type name: " << unknown.GetArrayTypeName()
+                      << "\n--> Value type name: " << unknown.GetValueTypeName()
+                      << "\n--> Storage type name: " << unknown.GetStorageTypeName() << std::endl;
+        }
+        return result;
+    }
+
+    {
+        // check for empty triangle/quad topology and convert to empty grid
+        auto tri = Triangles::as(result);
+        auto quad = Quads::as(result);
+        if (tri && tri->getNumCorners() == 0) {
+            tri.reset();
+            return result;
+        }
+        if (quad && quad->getNumCorners() == 0) {
+            quad.reset();
+            return result;
+        }
+    }
+
     if (auto coords = Coords::as(result)) {
         auto uPointCoordinates = dataset.GetCoordinateSystem().GetData();
         viskores::cont::UnknownArrayHandle unknown(uPointCoordinates);
         if (unknown.CanConvert<viskores::cont::ArrayHandle<viskores::Vec<Scalar, 3>>>()) {
-            auto vtkmCoord = unknown.AsArrayHandle<viskores::cont::ArrayHandle<viskores::Vec<Scalar, 3>>>();
-            for (int d = 0; d < 3; ++d) {
-                auto x = make_ArrayHandleExtractComponent(vtkmCoord, d);
-                coords->d()->x[d]->setHandle(x);
-            }
+            vtkmGetCoords<viskores::cont::ArrayHandle<viskores::Vec<Scalar, 3>>>(unknown, coords);
+        } else if (unknown.CanConvert<viskores::cont::ArrayHandleUniformPointCoordinates>()) {
+            vtkmGetCoords<viskores::cont::ArrayHandleUniformPointCoordinates>(unknown, coords);
+        } else if (unknown.CanConvert<AHCP<float>>()) {
+            vtkmGetCoords<AHCP<float>>(unknown, coords);
+        } else if (unknown.CanConvert<AHCP<double>>()) {
+            vtkmGetCoords<AHCP<double>>(unknown, coords);
+        } else if (unknown.CanConvert<AHLG<float>>()) {
+            vtkmGetCoords<AHLG<float>>(unknown, coords);
+        } else if (unknown.CanConvert<AHLG<double>>()) {
+            vtkmGetCoords<AHLG<double>>(unknown, coords);
         } else if (unknown.CanConvert<viskores::cont::ArrayHandleSOA<viskores::Vec3f>>()) {
-            auto vtkmCoord = unknown.AsArrayHandle<viskores::cont::ArrayHandleSOA<viskores::Vec3f>>();
-            for (int d = 0; d < 3; ++d) {
-                auto x = vtkmCoord.GetArray(d);
-                coords->d()->x[d]->setHandle(x);
-            }
+            vtkmGetCoords<viskores::cont::ArrayHandleSOA<viskores::Vec3f>>(unknown, coords);
         } else {
-            std::cerr << "cannot convert point coordinates" << std::endl;
+            std::cerr << "Error while converting Viskores grid to Vistle: Unsupported point coordinate array type:\n"
+                      << "--> Array type name: " << unknown.GetArrayTypeName()
+                      << "\n--> Value type name: " << unknown.GetValueTypeName()
+                      << "\n--> Storage type name: " << unknown.GetStorageTypeName() << std::endl;
         }
 
         vtkmGetNormals(dataset, result);
@@ -364,11 +447,14 @@ struct GetArrayContents {
 } // namespace
 
 vistle::DataBase::ptr vtkmGetField(const viskores::cont::DataSet &vtkmDataSet, const std::string &name,
-                                   vistle::DataBase::Mapping mapping)
+                                   vistle::DataBase::Mapping mapping, bool warnIfNotFound)
 {
     vistle::DataBase::ptr result;
-    if (!vtkmDataSet.HasField(name))
+    if (!vtkmDataSet.HasField(name)) {
+        if (warnIfNotFound)
+            std::cerr << "vtkmGetField: Viskores field " << name << " not found" << std::endl;
         return result;
+    }
 
     viskores::cont::Field::Association assoc = viskores::cont::Field::Association::Any;
     switch (mapping) {
@@ -388,21 +474,24 @@ vistle::DataBase::ptr vtkmGetField(const viskores::cont::DataSet &vtkmDataSet, c
 
     auto field = vtkmDataSet.GetField(name, assoc);
     if (!field.IsCellField() && !field.IsPointField()) {
-        std::cerr << "Viskores field " << name << " is neither point nor cell field" << std::endl;
+        std::cerr << "vtkmGetField: Viskores field " << name << " is neither point nor cell field" << std::endl;
         return result;
     }
     auto ah = field.GetData();
     try {
         ah.CastAndCallForTypes<viskores::TypeListAll, viskores::cont::StorageListCommon>(GetArrayContents{result});
     } catch (viskores::cont::ErrorBadType &err) {
-        std::cerr << "cast error: " << err.what() << std::endl;
+        std::cerr << "vtkmGetField: cast error: " << err.what() << std::endl;
     }
-    if (result) {
-        if (field.IsCellField()) {
-            result->setMapping(vistle::DataBase::Element);
-        } else {
-            result->setMapping(vistle::DataBase::Vertex);
-        }
+    if (!result) {
+        std::cerr << "vtkmGetField: Viskores field " << name << " has unsupported type" << std::endl;
+        return result;
+    }
+
+    if (field.IsCellField()) {
+        result->setMapping(vistle::DataBase::Element);
+    } else {
+        result->setMapping(vistle::DataBase::Vertex);
     }
     return result;
 }

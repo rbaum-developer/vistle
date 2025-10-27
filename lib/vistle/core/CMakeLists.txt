@@ -2,6 +2,7 @@ vistle_find_package(LZ4)
 #vistle_find_package(ZSTD)
 
 set(core_SOURCES
+    message/colormap.cpp
     message/setname.cpp
     allobjects.cpp # just one file including all the others for faster compilation
     availablemodule.cpp
@@ -57,7 +58,6 @@ set(core_SOURCES
     scalars.cpp
     structuredgrid.cpp
     structuredgridbase.cpp
-    texture1d.cpp
     uniformgrid.cpp
     unstr.cpp
     uuid.cpp
@@ -65,6 +65,7 @@ set(core_SOURCES
     vertexownerlist.cpp)
 
 set(core_HEADERS
+    message/colormap.h
     message/setname.h
     archive_loader.h
     archive_saver.h
@@ -130,6 +131,7 @@ set(core_HEADERS
     quads.h
     rectilineargrid.h
     rectilineargrid_impl.h
+    rgba.h
     scalar.h
     scalars.h
     serialize.h
@@ -151,8 +153,6 @@ set(core_HEADERS
     structuredgridbase.h
     structuredgridbase_impl.h
     tcpmessage.h
-    texture1d.h
-    texture1d_impl.h
     triangles.h
     uniformgrid.h
     uniformgrid_impl.h
@@ -177,6 +177,8 @@ endif()
 
 vistle_add_library(vistle_core EXPORT ${VISTLE_LIB_TYPE} ${core_SOURCES} ${core_HEADERS})
 
+target_link_libraries(vistle_core PUBLIC vistle_eigen)
+target_link_libraries(vistle_core PUBLIC vistle_yas)
 if(UNIX AND NOT APPLE)
     target_link_libraries(vistle_core PUBLIC -lrt)
 endif()
@@ -199,7 +201,6 @@ vistle_target_link_libraries(
     PUBLIC
     viskores::cont)
 target_link_libraries(vistle_core PRIVATE vistle_config)
-target_link_libraries(vistle_core PUBLIC Eigen3::Eigen)
 
 target_include_directories(vistle_core SYSTEM PRIVATE ${ZFP_INCLUDE_DIRS})
 vistle_target_link_libraries(vistle_core PRIVATE ${ZFP_LIBRARIES})
@@ -223,10 +224,4 @@ if(LZ4_FOUND)
     target_compile_definitions(vistle_core PRIVATE HAVE_LZ4)
     target_include_directories(vistle_core SYSTEM PRIVATE ${LZ4_INCLUDE_DIRS})
     vistle_target_link_libraries(vistle_core PRIVATE ${LZ4_LIBRARIES})
-endif()
-
-target_include_directories(vistle_core SYSTEM PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/3rdparty>)
-target_include_directories(vistle_core SYSTEM PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/lib/3rdparty/yas/include>)
-if(VISTLE_INSTALL_3RDPARTY)
-    target_include_directories(vistle_core SYSTEM PUBLIC $<INSTALL_INTERFACE:include/vistle/3rdparty>)
 endif()

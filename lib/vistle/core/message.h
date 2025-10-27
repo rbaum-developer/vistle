@@ -83,6 +83,8 @@ DEFINE_ENUM_WITH_STRING_CONVERSIONS(
     (COVER)
     (INSITU)
     (SETNAME)
+    (COLORMAP)
+    (REMOVECOLORMAP)
     (NumMessageTypes) // keep last
 )
 V_ENUM_OUTPUT_OP(Type, ::vistle::message)
@@ -351,6 +353,11 @@ protected:
         static_assert(sizeof(MessageClass) <= Message::MESSAGE_SIZE, "message too large");
     }
 };
+
+template<class Payload>
+extern V_COREEXPORT buffer addPayload(Message &message, const Payload &payload);
+template<class Payload>
+extern V_COREEXPORT Payload getPayload(const buffer &data);
 
 V_COREEXPORT buffer compressPayload(vistle::message::CompressionMode &mode, const char *raw, size_t size,
                                     int speed = -1 /* algorithm default */);

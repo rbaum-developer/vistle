@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 project(
@@ -1011,7 +1011,7 @@ if(NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "Emscripten")
             list(SUBLIST SOURCES ${IDX} -1 DEVSOURCES)
             viskores_add_target_information(${targetname} MODIFY_CUDA_FLAGS DEVICE_SOURCES ${DEVSOURCES})
         endif()
-        target_link_libraries(${targetname} PRIVATE vistle_viskores viskores::cont viskores::filter)
+        target_link_libraries(${targetname} PRIVATE vistle_viskores viskores::filter)
         if(VISTLE_USE_CUDA AND VISTLE_USE_SEPARABLE_COMPILATION)
             set_target_properties(${targetname} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
         endif()

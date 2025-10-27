@@ -10,7 +10,6 @@
 #include <vistle/core/normals.h>
 #include <vistle/core/polygons.h>
 #include <vistle/core/quads.h>
-#include <vistle/core/texture1d.h>
 #include <vistle/core/unstr.h>
 #include <vistle/core/points.h>
 #include <vistle/core/lines.h>
@@ -158,13 +157,6 @@ DataBase::ptr replicateData(DataBase::const_ptr src, Index mult, Index nConn = 0
     DataBase::ptr result;
     boost::mpl::for_each<Scalars>(ReplicateData<1>(src, result, mult, nConn, cl, nElem, el, nStart, nEnd));
     boost::mpl::for_each<Scalars>(ReplicateData<3>(src, result, mult, nConn, cl, nElem, el, nStart, nEnd));
-    if (auto tex = Texture1D::as(src)) {
-        auto vec1 = Vec<Scalar, 1>::as(Object::ptr(result));
-        assert(vec1);
-        auto result2 = tex->clone();
-        result2->d()->x[0] = vec1->d()->x[0];
-        result = result2;
-    }
     return result;
 }
 
@@ -173,13 +165,6 @@ DataBase::ptr replicateData(DataBase::const_ptr src, Index nnelem, const Index *
     DataBase::ptr result;
     boost::mpl::for_each<Scalars>(ReplicateData<1>(src, result, nnelem, mult, numTri, numVert));
     boost::mpl::for_each<Scalars>(ReplicateData<3>(src, result, nnelem, mult, numTri, numVert));
-    if (auto tex = Texture1D::as(src)) {
-        auto vec1 = Vec<Scalar, 1>::as(Object::ptr(result));
-        assert(vec1);
-        auto result2 = tex->clone();
-        result2->d()->x[0] = vec1->d()->x[0];
-        result = result2;
-    }
     return result;
 }
 
@@ -333,7 +318,6 @@ bool ToTriangles::compute()
                 updateMeta(nobj);
                 result = nobj;
             }
-            return true;
         }
 
         if (auto poly = Polygons::as(obj)) {
@@ -767,16 +751,16 @@ bool ToTriangles::compute()
             }
             Index ntri = 0;
             for (Index e = 0; e < nelem; ++e) {
-                if (tl[e] == UnstructuredGrid::TRIANGLE) {
-                    ++ntri;
+                const Index begin = el[e], end = el[e + 1];
+                const Index N = end - begin;
+                if (tl[e] != UnstructuredGrid::TRIANGLE && tl[e] != UnstructuredGrid::QUAD &&
+                    tl[e] != UnstructuredGrid::POLYGON) {
                     if (perElement)
-                        mult.push_back(1);
-                } else if (tl[e] == UnstructuredGrid::QUAD) {
-                    ntri += 2;
-                    if (perElement)
-                        mult.push_back(2);
+                        mult.push_back(0);
                 } else {
-                    mult.push_back(0);
+                    ntri += N - 2;
+                    if (perElement)
+                        mult.push_back(N - 2);
                 }
             }
 
@@ -788,19 +772,19 @@ bool ToTriangles::compute()
             auto tcl = tri->cl().data();
             for (Index e = 0; e < nelem; ++e) {
                 const Index begin = el[e], end = el[e + 1];
+                const Index N = end - begin;
                 if (tl[e] == UnstructuredGrid::TRIANGLE) {
                     assert(end - begin == 3);
-                    for (Index v = begin; v < end; ++v) {
-                        tcl[i++] = cl[v];
-                    }
                 } else if (tl[e] == UnstructuredGrid::QUAD) {
                     assert(end - begin == 4);
-                    for (Index v = begin; v < begin + 3; ++v) {
-                        tcl[i++] = cl[v];
-                    }
+                } else if (tl[e] == UnstructuredGrid::POLYGON) {
+                } else {
+                    continue;
+                }
+                for (Index v = 0; v < N - 2; ++v) {
                     tcl[i++] = cl[begin];
-                    tcl[i++] = cl[begin + 2];
-                    tcl[i++] = cl[begin + 3];
+                    tcl[i++] = cl[begin + v + 1];
+                    tcl[i++] = cl[begin + v + 2];
                 }
             }
             assert(i == 3 * ntri);

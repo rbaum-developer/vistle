@@ -102,9 +102,10 @@ private:
     //Parameter
     vistle::StringParameter *m_casedir, *m_patchSelection;
     vistle::FloatParameter *m_starttime, *m_stoptime;
-    vistle::IntParameter *m_readGrid, *m_readBoundary, *m_boundaryPatchesAsVariants;
+    vistle::IntParameter *m_boundaryPatchesAsVariants;
     vistle::IntParameter *m_buildGhostcellsParam;
     bool m_buildGhost;
+    bool m_readGrid = false, m_readBoundary = false;
     vistle::IntParameter *m_onlyPolyhedraParam = nullptr;
     bool m_onlyPolyhedra = false;
     std::vector<vistle::StringParameter *> m_fieldOut, m_boundaryOut;
@@ -125,16 +126,16 @@ private:
 
     //! return MPI rank on which a block should be processed, takes OpenFOAM case, especially no. of blocks, into account
     int rankForBlock(int processor) const;
-    bool readDirectory(const std::string &dir, int processor, int timestep);
+    bool readDirectory(vistle::Reader::Token &token, const std::string &dir, int processor, int timestep);
     bool buildGhostCells(int processor, GhostMode mode);
     bool buildGhostCellData(int processor);
     void processAllRequests();
     void applyGhostCells(int processor, GhostMode mode);
     void applyGhostCellsData(int processor);
-    bool addGridToPorts(int processor);
-    bool addVolumeDataToPorts(int processor);
-    bool readConstant(const std::string &dir);
-    bool readTime(const std::string &dir, int timestep);
+    bool addBoundaryToPort(vistle::Reader::Token &token, int processor);
+    bool addVolumeDataToPorts(vistle::Reader::Token &token, int processor);
+    bool readConstant(vistle::Reader::Token &token, const std::string &dir);
+    bool readTime(vistle::Reader::Token &token, const std::string &dir, int timestep);
     std::vector<vistle::Index> getAdjacentCells(const vistle::Index &cell, const DimensionInfo &dim,
                                                 const std::vector<std::vector<vistle::Index>> &cellfacemap,
                                                 const std::vector<vistle::Index> &owners,
@@ -151,9 +152,10 @@ private:
     vistle::DataBase::ptr loadField(const std::string &dir, const std::string &field);
     std::vector<vistle::DataBase::ptr> loadBoundaryField(const std::string &dir, const std::string &field,
                                                          const int &processor);
-    bool loadFields(const std::string &dir, const std::map<std::string, int> &fields, int processor, int timestep);
+    bool loadFields(vistle::Reader::Token &token, const std::string &dir, const std::map<std::string, int> &fields,
+                    int processor, int timestep);
 
-    void setMeta(vistle::Object::ptr obj, int processor, int timestep) const;
+    void setMeta(vistle::Reader::Token &token, vistle::Object::ptr obj, int processor, int timestep) const;
 
     std::map<int, std::vector<vistle::Polygons::ptr>> m_currentbound;
     std::map<int, vistle::UnstructuredGrid::ptr> m_currentgrid;

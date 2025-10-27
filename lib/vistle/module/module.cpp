@@ -26,6 +26,7 @@
 #include <vistle/util/threadname.h>
 #include <vistle/util/affinity.h>
 #include <vistle/util/profile.h>
+#include <vistle/util/directory.h>
 #include <vistle/config/config.h>
 #include <vistle/core/object.h>
 #include <vistle/core/empty.h>
@@ -238,6 +239,7 @@ Module::Module(const std::string &moduleName, const int moduleId, mpi::communica
     m_size = m_comm.size();
     m_rank = m_comm.rank();
     m_configAccess = std::make_unique<config::Access>(vistle::hostname(), vistle::clustername(), m_rank);
+    m_configAccess->setPrefix(Directory().prefix());
     ParameterManager::setConfig(m_configAccess.get());
     m_configFile = m_configAccess->file("module/" + name());
 
@@ -1769,6 +1771,8 @@ bool Module::handleMessage(const vistle::message::Message *message, const Messag
     case message::BUSY:
     case message::REMOTERENDERING:
     case message::ITEMINFO:
+    case message::COLORMAP:
+    case message::REMOVECOLORMAP:
         break;
 
     default:
@@ -3011,13 +3015,6 @@ bool BlockTask::waitDependencies()
     m_dependencies.clear();
 
     return true;
-}
-
-template<class Payload>
-bool Module::sendMessageWithPayload(message::Message &message, Payload &payload) const
-{
-    auto pl = addPayload(message, payload);
-    return this->sendMessage(message, &pl);
 }
 
 int Module::shmLeader(int rank) const

@@ -62,10 +62,6 @@ ReadFOAM::ReadFOAM(const std::string &name, int moduleId, mpi::communicator comm
     m_stoptime = addFloatParameter("stoptime", "stop reading at the last step before this time",
                                    std::numeric_limits<double>::max());
     setParameterMinimum<Float>(m_stoptime, 0.);
-    m_readGrid = addIntParameter("read_grid", "load the grid?", 1, Parameter::Boolean);
-
-    //Mesh ports
-    m_boundOut = createOutputPort("grid_out1", "boundary geometry");
 
     for (int i = 0; i < NumPorts; ++i) {
         { // Data Ports
@@ -85,10 +81,13 @@ ReadFOAM::ReadFOAM(const std::string &name, int moduleId, mpi::communicator comm
 
         linkPortAndParameter(m_volumeDataOut[i], m_fieldOut[i]);
     }
-    m_readBoundary = addIntParameter("read_boundary", "load the boundary?", 1, Parameter::Boolean);
     m_boundaryPatchesAsVariants = addIntParameter(
         "patches_as_variants", "create sub-objects with variant attribute for boundary patches", 1, Parameter::Boolean);
     m_patchSelection = addStringParameter("patches", "select patches", "all", Parameter::Restraint);
+
+    //Mesh ports
+    m_boundOut = createOutputPort("grid_out1", "boundary geometry");
+
     for (int i = 0; i < NumBoundaryPorts; ++i) {
         { // 2d Data Ports
             std::stringstream s;
@@ -206,10 +205,10 @@ bool ReadFOAM::read(Reader::Token &token, int time, int part)
     (void)part;
 
     if (time == -1) {
-        return readConstant(casedir);
+        return readConstant(token, casedir);
     }
 
-    return readTime(casedir, token.meta().timeStep());
+    return readTime(token, casedir, token.meta().timeStep());
 }
 
 bool ReadFOAM::prepareRead()
@@ -225,12 +224,28 @@ bool ReadFOAM::prepareRead()
 
     m_buildGhost = m_buildGhostcellsParam->getValue() && m_case.numblocks > 0;
     m_onlyPolyhedra = m_onlyPolyhedraParam->getValue();
+    m_readGrid = false;
+    for (auto p: m_volumeDataOut) {
+        if (isConnected(*p)) {
+            m_readGrid = true;
+            break;
+        }
+    }
+    m_readBoundary = isConnected(*m_boundOut);
+    for (auto p: m_boundaryDataOut) {
+        if (isConnected(*p)) {
+            m_readBoundary = true;
+            break;
+        }
+    }
 
     if (rank() == 0) {
         std::cerr << "# processors: " << m_case.numblocks << std::endl;
         std::cerr << "# time steps: " << m_case.timedirs.size() << std::endl;
         std::cerr << "grid topology: " << (m_case.varyingGrid ? "varying" : "constant") << std::endl;
         std::cerr << "grid coordinates: " << (m_case.varyingCoords ? "varying" : "constant") << std::endl;
+        std::cerr << "read grid: " << (m_readGrid ? "yes" : "no") << std::endl;
+        std::cerr << "read boundary: " << (m_readBoundary ? "yes" : "no") << std::endl;
     }
 
     return true;
@@ -277,8 +292,6 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
     std::cerr << "loadGrid('" << meshdir << "', '" << topologyDir << "')" << std::endl;
     if (topologyDir.empty())
         topologyDir = meshdir;
-    bool readGrid = m_readGrid->getValue();
-    bool readBoundary = m_readBoundary->getValue();
     bool patchesAsVariants = m_boundaryPatchesAsVariants->getValue();
 
     std::shared_ptr<Boundaries> boundaries(new Boundaries());
@@ -297,7 +310,7 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
     }
     std::shared_ptr<std::vector<Index>> owners(new std::vector<Index>());
     GridDataContainer result(grid, polyList, owners, boundaries);
-    if (!readGrid && !readBoundary) {
+    if (!m_readGrid && !m_readBoundary) {
         return result;
     }
 
@@ -338,7 +351,7 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
             return result;
 
         //Boundary Polygon
-        if (readBoundary) {
+        if (m_readBoundary) {
             if (patchesAsVariants) {
                 size_t boundIdx = 0;
                 for (const auto &b: boundaries->boundaries) {
@@ -387,7 +400,7 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
         }
 
         //Grid
-        if (readGrid) {
+        if (m_readGrid) {
             grid->el().resize(dim.cells + 1);
             grid->tl().resize(dim.cells);
             //Create CellFaceMap
@@ -404,7 +417,7 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
             //with either its own or the neighbouring domain's face-numbering (clockwise or ccw)
             //so that two domains have the same list for a mutual border
             //therefore m_procBoundaryVertices[0][1] point to the same vertices in the same order as
-            //m_procBoundaryVertices[1][0] (though each list may use different labels  for each vertice)
+            //m_procBoundaryVertices[1][0] (though each list may use different labels for each vertex)
             if (m_buildGhost) {
                 for (const auto &b: boundaries->procboundaries) {
                     std::vector<Index> outerVertices;
@@ -502,6 +515,33 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
             auto &connectivities = grid->cl();
             auto inserter = std::back_inserter(connectivities);
             connectivities.reserve(num_conn);
+            auto insertPoly = [&cellfacemap, &faces, &connectivities, &inserter, &owners, &neighbours, &dim](Index i) {
+                const auto &cellfaces = cellfacemap[i]; //get all faces of current cell
+                for (index_t j = 0; j < cellfaces.size(); j++) {
+                    index_t ia = cellfaces[j];
+                    const auto &a = faces[ia];
+
+                    if (!isPointingInwards(ia, i, dim.internalFaces, (*owners), neighbours)) {
+                        std::copy(a.rbegin(), a.rend(), inserter);
+                        connectivities.push_back(*a.rbegin());
+                    } else {
+                        std::copy(a.begin(), a.end(), inserter);
+                        connectivities.push_back(*a.begin());
+                    }
+                }
+            };
+#define FINDVERTEX_OR_POLY(idx) \
+    { \
+        auto v = findVertexAlongEdge(a[idx], ia, cellfaces, faces); \
+        if (v != -1) { \
+            a.push_back(v); \
+        } else { \
+            std::cerr << "ERROR: findVertexAlongEdge failed for " << a[idx] << std::endl; \
+            tl[i] = UnstructuredGrid::POLYGON; \
+            insertPoly(i); \
+            break; \
+        } \
+    }
             for (index_t i = 0; i < dim.cells; i++) {
                 //element list
                 el[i] = connectivities.size();
@@ -519,9 +559,9 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                     }
 
                     // bottom face
-                    std::copy(a.begin(), a.end(), inserter);
+                    const auto b = a;
 #if 1
-                    for (auto v: a) {
+                    for (auto v: b) {
                         bool found = false;
                         for (int f = 1; f < 6; ++f) {
                             const auto &face = faces[cellfaces[f]];
@@ -529,12 +569,12 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                                 if (face[i] == v) {
                                     found = true;
                                     const int next = (i + 1) % 4;
-                                    auto it = std::find(a.begin(), a.end(), face[next]);
-                                    if (it == a.end()) {
-                                        connectivities.push_back(face[next]);
+                                    auto it = std::find(b.begin(), b.end(), face[next]);
+                                    if (it == b.end()) {
+                                        a.push_back(face[next]);
                                     } else {
                                         const int prev = (i + 4 - 1) % 4;
-                                        connectivities.push_back(face[prev]);
+                                        a.push_back(face[prev]);
                                     }
                                     break;
                                 }
@@ -545,11 +585,12 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                         assert(found);
                     }
 #else
-                    connectivities.push_back(findVertexAlongEdge(a[0], ia, cellfaces, faces));
-                    connectivities.push_back(findVertexAlongEdge(a[1], ia, cellfaces, faces));
-                    connectivities.push_back(findVertexAlongEdge(a[2], ia, cellfaces, faces));
-                    connectivities.push_back(findVertexAlongEdge(a[3], ia, cellfaces, faces));
+                    FINDVERTEX_OR_POLY(0);
+                    FINDVERTEX_OR_POLY(1);
+                    FINDVERTEX_OR_POLY(2);
+                    FINDVERTEX_OR_POLY(3);
 #endif
+                    std::copy(a.begin(), a.end(), inserter);
                 } break;
 
                 case UnstructuredGrid::PRISM: {
@@ -565,10 +606,10 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                         std::reverse(a.begin(), a.end());
                     }
 
+                    FINDVERTEX_OR_POLY(0);
+                    FINDVERTEX_OR_POLY(1);
+                    FINDVERTEX_OR_POLY(2);
                     std::copy(a.begin(), a.end(), inserter);
-                    connectivities.push_back(findVertexAlongEdge(a[0], ia, cellfaces, faces));
-                    connectivities.push_back(findVertexAlongEdge(a[1], ia, cellfaces, faces));
-                    connectivities.push_back(findVertexAlongEdge(a[2], ia, cellfaces, faces));
                 } break;
 
                 case UnstructuredGrid::PYRAMID: {
@@ -584,8 +625,8 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                         std::reverse(a.begin(), a.end());
                     }
 
+                    FINDVERTEX_OR_POLY(0);
                     std::copy(a.begin(), a.end(), inserter);
-                    connectivities.push_back(findVertexAlongEdge(a[0], ia, cellfaces, faces));
                 } break;
 
                 case UnstructuredGrid::TETRAHEDRON: {
@@ -596,23 +637,12 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                         std::reverse(a.begin(), a.end());
                     }
 
+                    FINDVERTEX_OR_POLY(0);
                     std::copy(a.begin(), a.end(), inserter);
-                    connectivities.push_back(findVertexAlongEdge(a[0], ia, cellfaces, faces));
                 } break;
 
                 case UnstructuredGrid::POLYHEDRON: {
-                    for (index_t j = 0; j < cellfaces.size(); j++) {
-                        index_t ia = cellfaces[j];
-                        const auto &a = faces[ia];
-
-                        if (!isPointingInwards(ia, i, dim.internalFaces, (*owners), neighbours)) {
-                            std::copy(a.rbegin(), a.rend(), inserter);
-                            connectivities.push_back(*a.rbegin());
-                        } else {
-                            std::copy(a.begin(), a.end(), inserter);
-                            connectivities.push_back(*a.begin());
-                        }
-                    }
+                    insertPoly(i);
                 } break;
 
                 default: {
@@ -621,32 +651,33 @@ GridDataContainer ReadFOAM::loadGrid(const std::string &meshdir, std::string top
                 }
                 }
             }
-            assert(num_conn == connectivities.size());
             el[dim.cells] = connectivities.size();
         }
     }
 
-    if (readGrid) {
+    if (m_readGrid) {
         loadCoords(meshdir, grid);
+    }
 
-        if (readBoundary) {
-            //if grid has been read already and boundary polygons are read also -> re-use coordinate lists for the boundary-plygon
+    if (m_readBoundary) {
+        if (m_readGrid) {
+            //if grid has been read already and boundary polygons are read also -> re-use coordinate lists for the boundary-polygon
             for (auto &poly: polyList) {
                 poly->d()->x[0] = grid->d()->x[0];
                 poly->d()->x[1] = grid->d()->x[1];
                 poly->d()->x[2] = grid->d()->x[2];
             }
-        }
-    } else {
-        //else read coordinate lists just for boundary polygons
-        bool first = true;
-        for (auto &poly: polyList) {
-            if (first) {
-                loadCoords(meshdir, poly);
-            } else {
-                poly->d()->x[0] = polyList[0]->d()->x[0];
-                poly->d()->x[1] = polyList[0]->d()->x[1];
-                poly->d()->x[2] = polyList[0]->d()->x[2];
+        } else {
+            //else read coordinate lists just for boundary polygons
+            bool first = true;
+            for (auto &poly: polyList) {
+                if (first) {
+                    loadCoords(meshdir, poly);
+                } else {
+                    poly->d()->x[0] = polyList[0]->d()->x[0];
+                    poly->d()->x[1] = polyList[0]->d()->x[1];
+                    poly->d()->x[2] = polyList[0]->d()->x[2];
+                }
             }
         }
     }
@@ -771,12 +802,13 @@ std::vector<DataBase::ptr> ReadFOAM::loadBoundaryField(const std::string &meshdi
     return result;
 }
 
-void ReadFOAM::setMeta(Object::ptr obj, int processor, int timestep) const
+void ReadFOAM::setMeta(Reader::Token &token, Object::ptr obj, int processor, int timestep) const
 {
     if (obj) {
         Index skipfactor = timeIncrement();
         obj->setTimestep(timestep);
         obj->setNumTimesteps((m_case.timedirs.size() + skipfactor - 1) / skipfactor);
+        token.applyMeta(obj);
         obj->setBlock(processor == -1 ? 0 : processor);
         obj->setNumBlocks(m_case.numblocks == 0 ? 1 : m_case.numblocks);
 
@@ -791,11 +823,10 @@ void ReadFOAM::setMeta(Object::ptr obj, int processor, int timestep) const
             }
         }
     }
-    updateMeta(obj);
 }
 
-bool ReadFOAM::loadFields(const std::string &meshdir, const std::map<std::string, int> &fields, int processor,
-                          int timestep)
+bool ReadFOAM::loadFields(Reader::Token &token, const std::string &meshdir, const std::map<std::string, int> &fields,
+                          int processor, int timestep)
 {
     for (int i = 0; i < NumPorts; ++i) {
         if (!m_volumeDataOut[i]->isConnected())
@@ -806,8 +837,8 @@ bool ReadFOAM::loadFields(const std::string &meshdir, const std::map<std::string
             continue;
         DataBase::ptr obj = loadField(meshdir, field);
         if (obj) {
-            setMeta(obj, processor, timestep);
-            obj->addAttribute(attribute::Species, field);
+            setMeta(token, obj, processor, timestep);
+            obj->describe(field, id());
         }
         m_currentvolumedata[processor][i] = obj;
     }
@@ -854,8 +885,8 @@ bool ReadFOAM::loadFields(const std::string &meshdir, const std::map<std::string
             auto &obj = fields[j];
             assert(obj);
             if (obj) {
-                setMeta(obj, processor, timestep);
-                obj->addAttribute(attribute::Species, field);
+                setMeta(token, obj, processor, timestep);
+                obj->describe(field, id());
                 obj->setMapping(DataBase::Element);
                 obj->setGrid(m_currentbound[processor][j]);
                 addObject(m_boundaryDataOut[i], obj);
@@ -866,7 +897,7 @@ bool ReadFOAM::loadFields(const std::string &meshdir, const std::map<std::string
 }
 
 
-bool ReadFOAM::readDirectory(const std::string &casedir, int processor, int timestep)
+bool ReadFOAM::readDirectory(Reader::Token &token, const std::string &casedir, int processor, int timestep)
 {
     std::string dir;
 
@@ -881,9 +912,9 @@ bool ReadFOAM::readDirectory(const std::string &casedir, int processor, int time
         if (!m_case.varyingGrid) {
             auto ret = loadGrid(dir + "polyMesh");
             UnstructuredGrid::ptr grid = ret.grid;
-            setMeta(grid, processor, timestep);
+            setMeta(token, grid, processor, timestep);
             for (auto &poly: ret.polygon)
-                setMeta(poly, processor, timestep);
+                setMeta(token, poly, processor, timestep);
             m_owners[processor] = ret.owners;
             m_boundaries[processor] = ret.boundaries;
 
@@ -891,7 +922,7 @@ bool ReadFOAM::readDirectory(const std::string &casedir, int processor, int time
             m_currentbound[processor] = ret.polygon;
             m_basedir[processor] = dir;
         }
-        loadFields(dir, m_case.constantFields, processor, timestep);
+        loadFields(token, dir, m_case.constantFields, processor, timestep);
         return true;
     }
 
@@ -947,13 +978,13 @@ bool ReadFOAM::readDirectory(const std::string &casedir, int processor, int time
             m_boundaries[processor] = ret.boundaries;
             m_basedir[processor] = completeMeshDir;
         }
-        setMeta(grid, processor, timestep);
+        setMeta(token, grid, processor, timestep);
         for (auto &poly: polygons)
-            setMeta(poly, processor, timestep);
+            setMeta(token, poly, processor, timestep);
         m_currentgrid[processor] = grid;
         m_currentbound[processor] = polygons;
     }
-    loadFields(dir, m_case.varyingFields, processor, timestep);
+    loadFields(token, dir, m_case.varyingFields, processor, timestep);
 
     return true;
 }
@@ -1319,7 +1350,7 @@ void ReadFOAM::applyGhostCellsData(int processor)
     m_GhostDataIn[processor].clear();
 }
 
-bool ReadFOAM::addGridToPorts(int processor)
+bool ReadFOAM::addBoundaryToPort(Reader::Token &token, int processor)
 {
     for (auto &poly: m_currentbound[processor])
         if (poly) {
@@ -1328,7 +1359,7 @@ bool ReadFOAM::addGridToPorts(int processor)
     return true;
 }
 
-bool ReadFOAM::addVolumeDataToPorts(int processor)
+bool ReadFOAM::addVolumeDataToPorts(Reader::Token &token, int processor)
 {
     std::vector<DataBase::ptr> portData(NumPorts);
     bool canAdd = true;
@@ -1367,11 +1398,11 @@ bool ReadFOAM::addVolumeDataToPorts(int processor)
     return true;
 }
 
-bool ReadFOAM::readConstant(const std::string &casedir)
+bool ReadFOAM::readConstant(Reader::Token &token, const std::string &casedir)
 {
     for (int i = -1; i < m_case.numblocks; ++i) {
         if (rankForBlock(i) == rank()) {
-            if (!readDirectory(casedir, i, -1))
+            if (!readDirectory(token, casedir, i, -1))
                 return false;
         }
     }
@@ -1379,8 +1410,15 @@ bool ReadFOAM::readConstant(const std::string &casedir)
     if (m_case.varyingCoords && m_case.varyingGrid)
         return true;
 
-    bool readGrid = m_readGrid->getValue();
-    if (!readGrid)
+    if (m_readBoundary && !m_case.varyingCoords) {
+        for (int i = -1; i < m_case.numblocks; ++i) {
+            if (rankForBlock(i) == rank()) {
+                addBoundaryToPort(token, i);
+            }
+        }
+    }
+
+    if (!m_readGrid)
         return true;
 
     GhostMode buildGhostMode = m_case.varyingCoords ? BASE : ALL;
@@ -1401,8 +1439,6 @@ bool ReadFOAM::readConstant(const std::string &casedir)
             if (m_buildGhost) {
                 applyGhostCells(i, buildGhostMode);
             }
-            if (!m_case.varyingCoords)
-                addGridToPorts(i);
         }
     }
 
@@ -1411,17 +1447,16 @@ bool ReadFOAM::readConstant(const std::string &casedir)
     return true;
 }
 
-bool ReadFOAM::readTime(const std::string &casedir, int timestep)
+bool ReadFOAM::readTime(Reader::Token &token, const std::string &casedir, int timestep)
 {
     for (int i = -1; i < m_case.numblocks; ++i) {
         if (rankForBlock(i) == rank()) {
-            if (!readDirectory(casedir, i, timestep))
+            if (!readDirectory(token, casedir, i, timestep))
                 return false;
         }
     }
 
-    bool readGrid = m_readGrid->getValue();
-    if (!readGrid)
+    if (!m_readGrid)
         return true;
 
     if (m_case.varyingCoords || m_case.varyingGrid) {
@@ -1442,7 +1477,7 @@ bool ReadFOAM::readTime(const std::string &casedir, int timestep)
                 if (m_buildGhost) {
                     applyGhostCells(i, ghostMode);
                 }
-                addGridToPorts(i);
+                addBoundaryToPort(token, i);
             }
         }
         m_GhostCellsIn.clear();
@@ -1463,7 +1498,7 @@ bool ReadFOAM::readTime(const std::string &casedir, int timestep)
             if (m_buildGhost) {
                 applyGhostCellsData(i);
             }
-            addVolumeDataToPorts(i);
+            addVolumeDataToPorts(token, i);
         }
     }
 

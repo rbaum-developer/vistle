@@ -1,37 +1,15 @@
 #ifndef VISTLE_INSITU_LIBSIM_LIBSIMINTERFACE_VISITDATATYPES_H
 #define VISTLE_INSITU_LIBSIM_LIBSIMINTERFACE_VISITDATATYPES_H
 
-#if __cplusplus >= 202002L
 #include <compare>
-#endif
 
 //typedef int visit_handle;
 
 class visit_handle {
 public:
     visit_handle() = default;
-    constexpr visit_handle(int val): i(val) {}
-
-#if __cplusplus < 202002L
-    constexpr bool operator==(const visit_handle other) const noexcept
-    {
-        return i == other.i;
-    }
-    constexpr bool operator!=(const visit_handle other) const noexcept
-    {
-        return i != other.i;
-    }
-#else
-    constexpr std::strong_ordering operator<=>(const visit_handle other) const noexcept
-    {
-        return i <=> other.i;
-    }
-#endif
-    constexpr operator int() const noexcept
-    {
-        return i;
-    }
-
+    constexpr visit_handle(int val) noexcept: i(val) {}
+    constexpr operator int() const noexcept { return i; }
 
 private:
     int i = -1; //VISIT_INVALID_HANDLE

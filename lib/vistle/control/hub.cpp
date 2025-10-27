@@ -29,6 +29,7 @@
 #include <vistle/util/url.h>
 #include <vistle/util/version.h>
 #include <vistle/core/message.h>
+#include <vistle/core/message/colormap.h>
 #include <vistle/core/tcpmessage.h>
 #include <vistle/core/messagerouter.h>
 #include <vistle/core/porttracker.h>
@@ -314,6 +315,7 @@ Hub::Hub(bool inManager)
         }
 #endif
     }
+
     make.setId(m_hubId);
     make.setRank(0);
     m_uiManager.lockUi(true);
@@ -765,6 +767,15 @@ bool Hub::init(int argc, char *argv[])
         return false;
     }
 
+    {
+        std::stringstream s;
+        s << hostname() << " " << port() << " " << dataPort() << " " << dataManagerBase();
+        std::string conn = s.str();
+        setenv("VISTLE_CONNECTION", conn.c_str(), 1);
+    }
+
+    vistle::directory::setVistleRoot(m_dir->prefix(), m_dir->buildType());
+
     if (m_isMaster) {
         // this is the master hub
         m_hubId = Id::MasterHub;
@@ -813,60 +824,15 @@ bool Hub::init(int argc, char *argv[])
             startPythonUi();
         }
 
-        std::string port = std::to_string(this->port());
-        std::string dataport = std::to_string(dataPort());
-
         if (!m_proxyOnly) {
-            // start manager on cluster
-            std::string cmd = m_dir->bin() + "vistle_manager";
-            if (vm.count("cover") > 0) {
-                vistle::Directory dir(argc, argv);
-                vistle::directory::setVistleRoot(dir.prefix(), dir.buildType());
-#ifdef VISTLE_USE_MPI
-                cmd = "OpenCOVER.mpi";
-#else
-                cmd = "opencover";
-#endif
-                setenv("VISTLE_PLUGIN", "VistleManager", 1);
-                std::stringstream s;
-                s << hostname() << " " << port << " " << dataport;
-                std::string conn = s.str();
-                setenv("VISTLE_CONNECTION", conn.c_str(), 1);
-
-                m_coverIsManager = true;
+            std::string libsimArg = vm.count("libsim") > 0 ? vm["libsim"].as<std::string>() : "";
+            if (!startManager(vm.count("cover") > 0, libsimArg)) {
+                CERR << "FATAL: could not launch cluster manager" << std::endl;
+                exit(1);
             }
-            std::vector<std::string> args;
-            args.push_back(cmd);
-            if (!m_coverIsManager) {
-                args.push_back("--from-vistle");
-                args.push_back(hostname());
-                args.push_back(port);
-                args.push_back(dataport);
-            }
-#ifdef MODULE_THREAD
-            if (vm.count("libsim") > 0) {
-                auto sim2FilePath = vm["libsim"].as<std::string>();
-
-                CERR << "starting manager in simulation" << std::endl;
-                if (vistle::insitu::libsim::attemptLibSimConnection(sim2FilePath, args)) {
-                    sendInfo("Successfully connected to simulation");
-                } else {
-                    CERR << "failed to spawn Vistle manager in the simulation" << std::endl;
-                    exit(1);
-                }
-
-            } else {
-#endif // MODULE_THREAD
-                auto child = launchMpiProcess(Process::Manager, args);
-                if (!child) {
-                    CERR << "failed to spawn Vistle manager " << std::endl;
-                    exit(1);
-                }
-#ifdef MODULE_THREAD
-            }
-#endif // MODULE_THREAD
         }
     }
+
     if (!m_interrupt && !m_quitting) {
 #ifdef HAVE_PYTHON
         m_python.reset(new PythonInterpreter(m_dir->share()));
@@ -916,6 +882,14 @@ unsigned short Hub::dataPort() const
         return 0;
 
     return m_dataProxy->port();
+}
+
+unsigned short Hub::dataManagerBase() const
+{
+    auto p = dataPort();
+    if (p == 0)
+        p = port();
+    return p + 1;
 }
 
 std::shared_ptr<process::child>
@@ -1339,11 +1313,11 @@ bool Hub::removeSocket(Hub::socket_ptr sock, bool close)
         }
     }
 
+    std::unique_lock<std::mutex> lock(m_socketMutex);
     if (removeClient(sock)) {
         //CERR << "removed client" << std::endl;
     }
 
-    std::unique_lock<std::mutex> lock(m_socketMutex);
     bool ret = m_sockets.erase(sock) > 0;
     sock.reset();
     return ret;
@@ -1361,7 +1335,6 @@ void Hub::addClient(Hub::socket_ptr sock)
 
 bool Hub::removeClient(Hub::socket_ptr sock)
 {
-    std::unique_lock<std::mutex> lock(m_socketMutex);
     return m_clients.erase(sock) > 0;
 }
 
@@ -1521,18 +1494,18 @@ bool Hub::checkOutstandingDataConnections()
 
     std::unique_lock<std::mutex> dataConnGuard(m_outstandingDataConnectionMutex);
     for (auto it = m_outstandingDataConnections.begin(); it != m_outstandingDataConnections.end(); ++it) {
-        if (!it->second.valid())
+        if (!it->second.fut.valid())
             continue;
-        if (it->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        if (it->second.fut.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
             continue;
 
         changed = true;
 
         auto &add = it->first;
-        bool ok = it->second.get();
+        bool ok = it->second.fut.get();
         if (ok) {
-            m_stateTracker.handle(add, nullptr, true);
-            sendUi(add);
+            m_stateTracker.handle(add, it->second.payload.get(), true);
+            sendUi(add, message::Id::Broadcast, it->second.payload.get());
         } else {
             CERR << "could not establish data connection to hub " << add.id() << " at " << add.address() << ":"
                  << add.port() << std::endl;
@@ -1794,9 +1767,14 @@ message::AddHub Hub::addHubForSelf() const
 {
     auto hub = make.message<message::AddHub>(m_hubId, m_name);
     hub.setNumRanks(m_localRanks);
-    hub.setDestId(Id::ForBroadcast);
+    //hub.setDestId(Id::ForBroadcast);
     hub.setPort(m_port);
     hub.setDataPort(m_dataProxy->port());
+    if (m_dataProxy->port() > 0) {
+        hub.setDataManagerPort(m_dataProxy->port() + 1);
+    } else {
+        hub.setDataManagerPort(m_port + 1);
+    }
     hub.setLoginName(vistle::getLoginName());
     hub.setRealName(vistle::getRealName());
     hub.setHasUserInterface(m_hasUi);
@@ -1930,9 +1908,10 @@ bool Hub::hubReady()
         }
         lock.unlock();
 
-        m_stateTracker.handle(hub, nullptr, true);
+        auto pl = message::addPayload(hub, m_addHubPayload);
+        m_stateTracker.handle(hub, &pl, true);
 
-        if (!sendMaster(hub)) {
+        if (!sendMaster(hub, &pl)) {
             return false;
         }
         m_ready = true;
@@ -1946,20 +1925,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
 {
     using namespace vistle::message;
 
-    if (m_numRunningModules > 0 && m_stateTracker.getNumRunning() == 0) {
-        m_numRunningModules = 0;
-        if (m_lastModuleQuitAction) {
-            CERR << "executing lastModuleQuitAction... " << std::flush;
-            if (m_lastModuleQuitAction()) {
-                std::cerr << "ok";
-            } else {
-                std::cerr << "ERROR";
-            }
-            std::cerr << std::endl;
-            m_lastModuleQuitAction = nullptr;
-        }
-    }
-    m_numRunningModules = m_stateTracker.getNumRunning();
+    checkLastModuleQuit();
 
     message::Buffer buf(recv);
     Message &msg = buf;
@@ -2064,6 +2030,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
             m_dataProxy->setBoostArchiveVersion(id.boost_archive_version());
             m_dataProxy->setIndexSize(id.indexSize());
             m_dataProxy->setScalarSize(id.scalarSize());
+            m_addHubPayload = getPayload<AddHub::Payload>(*payload);
             if (m_verbose >= Verbosity::Normal) {
                 CERR << "manager connected with " << m_localRanks << " ranks" << std::endl;
             }
@@ -2078,8 +2045,9 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
                 if (m_verbose >= Verbosity::Manager) {
                     CERR << "principal hub: " << master << std::endl;
                 }
-                m_stateTracker.handle(master, nullptr);
-                sendUi(master);
+                auto pl = message::addPayload(master, m_addHubPayload);
+                m_stateTracker.handle(master, &pl);
+                sendUi(master, message::Id::Broadcast, &pl);
             }
 
             if (m_hubId != Id::Invalid) {
@@ -2149,6 +2117,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
     }
     case message::ADDHUB: {
         auto &mm = static_cast<const AddHub &>(msg);
+        auto addPl = getPayload<AddHub::Payload>(*payload);
         auto add = mm;
         CERR << "received AddHub: " << add << std::endl;
         if (m_isMaster) {
@@ -2173,18 +2142,22 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
         std::unique_lock<std::mutex> guard(m_outstandingDataConnectionMutex);
         auto it = m_outstandingDataConnections.find(add);
         if (it == m_outstandingDataConnections.end()) {
-            m_outstandingDataConnections[add] =
-                std::async(std::launch::async, [this, add]() { return m_dataProxy->connectRemoteData(add); });
+            m_outstandingDataConnections[add].fut = std::async(
+                std::launch::async, [this, add, addPl]() { return m_dataProxy->connectRemoteData(add, addPl); });
+            if (payload) {
+                m_outstandingDataConnections[add].payload = std::make_shared<buffer>(*payload);
+            }
         } else {
             CERR << "already connecting to hub " << add.id() << ":" << add << std::endl;
         }
         guard.unlock();
 
-        m_stateTracker.handle(add, nullptr, true);
-        sendManager(add, Id::LocalHub);
-        sendUi(add);
+        auto pl = addPayload<AddHub::Payload>(add, addPl);
+        m_stateTracker.handle(add, &pl, true);
+        sendManager(add, Id::LocalHub, &pl);
+        sendUi(add, message::Id::Broadcast, &pl);
         if (m_isMaster) {
-            sendSlaves(add);
+            sendSlaves(add, true, &pl);
         }
         break;
     }
@@ -2284,6 +2257,8 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
         }
     }
 
+    checkLastModuleQuit();
+
     if (Router::the().toHandler(msg, senderType)) {
         switch (msg.type()) {
         case message::CREATEMODULECOMPOUND: {
@@ -2328,6 +2303,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
             auto &add = static_cast<const AddHub &>(msg);
             if (m_isMaster && add.hasUserInterface()) {
                 std::map<int, std::string> toMirror;
+                std::map<int, int> blueprintIds;
                 for (const auto &it: m_stateTracker.runningMap) {
                     const auto &m = it.second;
                     if (m.mirrorOfId == m.id) {
@@ -2336,7 +2312,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
                 }
 
                 for (auto &m: toMirror) {
-                    spawnMirror(add.id(), m.second, m.first);
+                    spawnMirror(add.id(), m.second, m.first, blueprintIds[m.first]);
                 }
             }
             break;
@@ -2711,6 +2687,16 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
             handlePriv(cover, payload);
             break;
         }
+        case COLORMAP: {
+            auto &cmap = msg.as<Colormap>();
+            handlePriv(cmap, payload);
+            break;
+        }
+        case REMOVECOLORMAP: {
+            auto &rcm = msg.as<RemoveColormap>();
+            handlePriv(rcm);
+            break;
+        }
         default: {
             break;
         }
@@ -2720,7 +2706,7 @@ bool Hub::handleMessage(const message::Message &recv, Hub::socket_ptr sock, cons
     return true;
 }
 
-bool Hub::spawnMirror(int hubId, const std::string &name, int mirroredId)
+bool Hub::spawnMirror(int hubId, const std::string &name, int mirroredId, int blueprintId)
 {
     assert(m_isMaster);
 
@@ -2738,11 +2724,11 @@ bool Hub::spawnMirror(int hubId, const std::string &name, int mirroredId)
     CERR << "doSpawn: sendManager mirror: " << mirror << std::endl;
     sendManager(mirror, hubId);
 
-    cacheModuleValues(mirroredId, mirror.spawnId());
+    cacheModuleValues(blueprintId, mirror.spawnId());
 
-    auto paramNames = m_stateTracker.getParameters(mirroredId);
+    auto paramNames = m_stateTracker.getParameters(blueprintId);
     for (const auto &pn: paramNames) {
-        auto con = message::Connect(mirroredId, pn, mirror.spawnId(), pn);
+        auto con = message::Connect(blueprintId, pn, mirror.spawnId(), pn);
         m_sendAfterSpawn[mirror.spawnId()].emplace_back(con);
     }
 
@@ -2870,7 +2856,8 @@ bool Hub::handlePriv(const message::Spawn &spawn)
         newId = Id::ModuleBase + m_moduleCount;
         ++m_moduleCount;
         notify.setSpawnId(newId);
-        notify.setMirroringId(newId);
+        if (shouldMirror)
+            notify.setMirroringId(newId);
         std::string suffix = "[" + std::to_string(newId) + "]";
 
         session.setCurrentParameterGroup("Workflow", false);
@@ -2942,7 +2929,7 @@ bool Hub::handlePriv(const message::Spawn &spawn)
             if (!hub.hasUi)
                 continue;
 
-            spawnMirror(hubid, spawn.getName(), newId);
+            spawnMirror(hubid, spawn.getName(), newId, newId);
         }
     }
     return true;
@@ -3614,6 +3601,58 @@ bool Hub::handleVrb(Hub::socket_ptr sock)
     return false;
 }
 
+bool Hub::startManager(bool inCover, const std::string &libsimPath)
+{
+    // start manager on cluster
+    std::string cmd = m_dir->bin() + "vistle_manager";
+    if (inCover) {
+#ifdef VISTLE_USE_MPI
+        cmd = "OpenCOVER.mpi";
+#else
+        cmd = "opencover";
+#endif
+        setenv("VISTLE_PLUGIN", "VistleManager", 1);
+
+        m_coverIsManager = true;
+    }
+
+    std::vector<std::string> args;
+    args.push_back(cmd);
+    if (!m_coverIsManager) {
+        std::string port = std::to_string(this->port());
+        std::string dataport = std::to_string(dataPort());
+        std::string datamgrbase = std::to_string(dataManagerBase());
+
+        args.push_back("--from-vistle");
+        args.push_back(hostname());
+        args.push_back(port);
+        args.push_back(dataport);
+        args.push_back(datamgrbase);
+    }
+
+#ifdef MODULE_THREAD
+    if (!libsimPath.empty()) {
+        CERR << "starting manager in simulation" << std::endl;
+        if (vistle::insitu::libsim::attemptLibSimConnection(libsimPath, args)) {
+            sendInfo("Successfully connected to simulation");
+        } else {
+            CERR << "failed to spawn Vistle manager in the simulation" << std::endl;
+            return false;
+        }
+
+    } else {
+#endif // MODULE_THREAD
+        auto child = launchMpiProcess(Process::Manager, args);
+        if (!child) {
+            CERR << "failed to spawn Vistle manager " << std::endl;
+            return false;
+        }
+#ifdef MODULE_THREAD
+    }
+#endif // MODULE_THREAD
+    return true;
+}
+
 bool Hub::startUi(const std::string &uipath, bool replace)
 {
     std::string port = std::to_string(this->m_masterPort);
@@ -3946,22 +3985,40 @@ bool Hub::handlePriv(const message::CancelExecute &cancel)
     return true;
 }
 
+namespace {
+bool sendBarrierReached(Hub &hub, const message::uuid_t &barrierUuid)
+{
+    auto r = hub.make.message<message::BarrierReached>(barrierUuid);
+    r.setDestId(Id::NextHop);
+    hub.stateTracker().handle(r, nullptr);
+    hub.sendUi(r);
+    hub.sendSlaves(r);
+    hub.sendManager(r);
+    return true;
+}
+} // namespace
+
 bool Hub::handlePriv(const message::Barrier &barrier)
 {
     if (m_verbose >= Verbosity::Manager) {
         CERR << "Barrier request: " << barrier.uuid() << " by " << barrier.senderId() << ": " << barrier.info()
              << std::endl;
     }
+    if (!m_isMaster) {
+        return true;
+    }
+
     assert(!m_barrierActive);
     assert(m_reachedSet.empty());
     m_numBarrierParticipants = m_stateTracker.getNumRunning();
-    if (m_stateTracker.getNumRunning() > 0) {
+    if (m_numBarrierParticipants == 0) {
+        sendBarrierReached(*this, barrier.uuid());
+    } else {
         m_barrierActive = true;
         m_barrierUuid = barrier.uuid();
         message::Buffer buf(barrier);
         buf.setDestId(Id::NextHop);
-        if (m_isMaster)
-            sendSlaves(buf, true);
+        sendSlaves(buf, true);
         sendManager(buf);
     }
     return true;
@@ -3982,12 +4039,7 @@ bool Hub::handlePriv(const message::BarrierReached &reached)
         if (m_reachedSet.size() == m_numBarrierParticipants) {
             m_barrierActive = false;
             m_reachedSet.clear();
-            auto r = make.message<message::BarrierReached>(reached.uuid());
-            r.setDestId(Id::NextHop);
-            m_stateTracker.handle(r, nullptr);
-            sendUi(r);
-            sendSlaves(r);
-            sendManager(r);
+            sendBarrierReached(*this, reached.uuid());
         } else {
             if (m_verbose >= Verbosity::Modules) {
                 auto running = m_stateTracker.getRunningList();
@@ -4208,6 +4260,30 @@ bool Hub::handlePriv(const message::ModuleExit &exit)
 
     cleanQueue(id);
 
+    checkLastModuleQuit();
+
+    return true;
+}
+
+bool Hub::checkLastModuleQuit()
+{
+    if (m_stateTracker.getNumRunning() > 0 || m_numRunningModules == 0) {
+        m_numRunningModules = m_stateTracker.getNumRunning();
+        return false;
+    }
+
+    m_numRunningModules = 0;
+    if (m_lastModuleQuitAction) {
+        CERR << "executing lastModuleQuitAction... " << std::flush;
+        if (m_lastModuleQuitAction()) {
+            std::cerr << "ok";
+        } else {
+            std::cerr << "ERROR";
+        }
+        std::cerr << std::endl;
+        m_lastModuleQuitAction = nullptr;
+    }
+    m_numRunningModules = m_stateTracker.getNumRunning();
     return true;
 }
 
@@ -4315,6 +4391,16 @@ bool Hub::handlePriv(const message::Cover &cover, const buffer *payload)
         }
     }
 
+    return true;
+}
+
+bool Hub::handlePriv(const message::Colormap &cm, const buffer *payload)
+{
+    return true;
+}
+
+bool Hub::handlePriv(const message::RemoveColormap &rmcm)
+{
     return true;
 }
 
@@ -4529,6 +4615,10 @@ void Hub::spawnModule(const std::string &path, const std::string &name, int spaw
 
 void Hub::updateLinkedParameters(const message::SetParameter &setParam)
 {
+    // only master hub should deal with parameter connections
+    if (!m_isMaster)
+        return;
+
     // the msg should have a referrer if it is in reaction to a connected parameter change
     if (setParam.referrer()
             .is_nil()) { //prevents msgs running in circles if e.g.: parameter bounds prevent them from being equal
@@ -4536,8 +4626,9 @@ void Hub::updateLinkedParameters(const message::SetParameter &setParam)
         //depends on whether the ui or the module request the parameter change
         //auto moduleID = message::Id::isModule(setParam.destId()) ? setParam.destId() : setParam.senderId();
         auto moduleID = setParam.getModule();
-        const auto port = m_stateTracker.portTracker()->findPort(moduleID, setParam.getName());
-        const auto param = m_stateTracker.getParameter(moduleID, setParam.getName());
+        std::string name = setParam.getName();
+        const auto port = m_stateTracker.portTracker()->findPort(moduleID, name);
+        const auto param = m_stateTracker.getParameter(moduleID, name);
         std::shared_ptr<Parameter> appliedParam;
         if (param) {
             appliedParam.reset(param->clone());
@@ -4549,7 +4640,7 @@ void Hub::updateLinkedParameters(const message::SetParameter &setParam)
 
             for (ParameterSet::iterator it = conn.begin(); it != conn.end(); ++it) {
                 const auto p = *it;
-                if (p->module() == moduleID && p->getName() == setParam.getName()) {
+                if (p->module() == moduleID && p->getName() == name) {
                     // don't update parameter which was set originally again
                     continue;
                 }

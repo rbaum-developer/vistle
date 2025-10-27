@@ -89,6 +89,7 @@ ReadSubzoneTecplot::ReadSubzoneTecplot(const std::string &name, int moduleID, mp
             "", Parameter::Choice);
 
         m_fieldsOut[i] = createOutputPort("field_out_" + std::to_string(i), "data field");
+        linkPortAndParameter(m_fieldsOut[i], m_fieldChoice[i]);
     }
 
 
@@ -744,7 +745,7 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                                 int32_t loc = 0;
                                 tecio_locked([&] { tecZoneVarGetValueLocation(fh, zone, varInFile[0], &loc); });
 
-                                field->addAttribute(vistle::attribute::Species, name);
+                                field->describe(name, id());
                                 field->setMapping(loc == 0 ? vistle::DataBase::Element : vistle::DataBase::Vertex);
                                 field->setGrid(strGrid);
                                 token.applyMeta(field);
@@ -789,7 +790,7 @@ bool ReadSubzoneTecplot::read(Reader::Token &token, int timestep, int block)
                                               << locY << "," << locZ << "), using first.\n";
                                 }
 
-                                field->addAttribute(vistle::attribute::Species, name);
+                                field->describe(name, id());
                                 field->setMapping(locX == 0 ? vistle::DataBase::Element : vistle::DataBase::Vertex);
                                 field->setGrid(strGrid);
                                 token.applyMeta(field);

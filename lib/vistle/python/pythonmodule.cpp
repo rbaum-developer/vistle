@@ -27,6 +27,7 @@
 #include <vistle/config/access.h>
 #include <vistle/config/value.h>
 #include <vistle/util/hostname.h>
+#include <vistle/util/directory.h>
 #endif
 
 //#define DEBUG
@@ -818,10 +819,7 @@ static void compute(int id = message::Id::Broadcast)
     std::cerr << "Python: compute " << id << std::endl;
 #endif
     message::Execute m(message::Execute::ComputeExecute, id);
-    if (id == message::Id::Broadcast)
-        m.setDestId(message::Id::MasterHub);
-    else
-        m.setDestId(id);
+    m.setDestId(message::Id::MasterHub);
     sendMessage(m);
 }
 
@@ -1323,6 +1321,7 @@ static bool sessionConnectWithObserver(StateObserver *o, const std::string &host
     if (port == 0) {
         auto hostname = vistle::hostname();
         auto config = vistle::config::Access(hostname, hostname);
+        config.setPrefix(Directory().prefix());
         port = *config.value<int64_t>("system", "net", "controlport", 31093);
     }
 

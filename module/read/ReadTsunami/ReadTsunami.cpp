@@ -91,11 +91,6 @@ ReadTsunami::ReadTsunami(const string &name, int moduleID, mpi::communicator com
     //scalar
     initScalarParamReader();
 
-    // timestep built-in params
-    setParameterRange(m_first, Integer(0), Integer(9999999));
-    setParameterRange(m_last, Integer(-1), Integer(9999999));
-    setParameterRange(m_increment, Integer(1), Integer(9999999));
-
     // observer these parameters
     observeParameter(m_filedir);
     observeParameter(m_blocks[0]);
@@ -490,7 +485,7 @@ void ReadTsunami::initScalarDepLatLon(VisVecScalarPtr &scalarPtr, const NcVar &v
     var.getVar_all(vecScalarStart, vecScalarCount, vecScalarStride, vecScalarImap, scalarPtr->x().begin());
 
     //set some meta data
-    scalarPtr->addAttribute(attribute::Species, var.getName());
+    scalarPtr->describe(var.getName(), id());
     scalarPtr->setBlock(block);
 }
 
@@ -745,7 +740,9 @@ bool ReadTsunami::computeConst(Token &token, const int block)
         auto last = m_last->getValue();
         if (last < 0)
             return false;
-        auto inc = m_increment->getValue();
+        auto inc = timeIncrement();
+        if (inc < 0)
+            inc = -inc;
         auto first = m_first->getValue();
         last = last - (last % inc);
         const auto &time = ReaderTime(first, last, inc);
@@ -823,7 +820,7 @@ bool ReadTsunami::computeTimestep(Token &token, const int block, const int times
         auto scalarPtr = vecScalarPtr->clone();
 
         scalarPtr->setGrid(gridPtr);
-        scalarPtr->addAttribute(attribute::Species, vecScalarPtr->getAttribute(attribute::Species));
+        scalarPtr->describe(vecScalarPtr->getAttribute(attribute::Species), id());
 
         token.applyMeta(scalarPtr);
         token.addObject(m_scalarsOut[i], scalarPtr);
