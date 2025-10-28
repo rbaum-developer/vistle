@@ -311,3 +311,95 @@ int ReadAnsys::SetNodeChoices()
 
     return 0;
 }
+
+// Adapted MakeGridAndObjects for Vistle
+// builds an UnstructuredGrid and a Data Vec (scalar or vector) from ANSYS-style arrays
+UnstructuredGrid::ptr ReadAnsys::MakeGridAndObjects(std::vector<int> &e_l, std::vector<int> &v_l,
+                                                    std::vector<float> &x_l, std::vector<float> &y_l,
+                                                    std::vector<float> &z_l, std::vector<int> &t_l,
+                                                    const float *const *field,
+                                                    int ftype, // 0 = scalar, 1 = vector
+                                                    const int *materials //, UnstructuredGrid::ptr &grid_out,
+                                                    //DataBase::ptr &data_out
+)
+{
+    // basic sizes
+    size_t numElements = (size_t)e_l.size();
+    size_t numCorners = (size_t)v_l.size();
+    size_t numVertices = (size_t)x_l.size();
+
+    if (numElements <= 0 || numVertices == 0) {
+        sendError("MakeGridAndObjects: empty mesh data    using namespace vistle;");
+        //return;
+    }
+
+    // create grid
+    //UnstructuredGrid::ptr grid_out = std::make_shared<UnstructuredGrid>(numElements, numCorners, numVertices);
+    UnstructuredGrid::ptr grid_out(new UnstructuredGrid(numElements, numCorners, numVertices));
+
+
+    // fill coordinates
+    auto gx = grid_out->x().data();
+    auto gy = grid_out->y().data();
+    auto gz = grid_out->z().data();
+    for (size_t i = 0; i < numVertices; ++i) {
+        gx[i] = x_l[i];
+        gy[i] = y_l[i];
+        gz[i] = z_l[i];
+    }
+
+    // fill element lists
+    auto gel = grid_out->el().data();
+    auto gcl = grid_out->cl().data();
+    auto gtl = grid_out->tl().data();
+
+    for (size_t i = 0; i < numElements; ++i) {
+        gel[i] = e_l[i];
+        gtl[i] = t_l[i];
+    }
+    // copy corner/vertex indices
+    for (size_t i = 0; i < numCorners; ++i) {
+        gcl[i] = v_l[i];
+    }
+    // final element entry: total number of corners
+    if (numElements > 0)
+        gel[numElements] = (int)numCorners;
+
+    return grid_out;
+    /* 
+    // create data if provided
+    data_out.reset();
+    if (field && field[0]) {
+        if (ftype == 0) { // scalar per-vertex
+            Vec<Scalar>::ptr s = std::make_shared<Vec<Scalar>>(numVertices);
+            auto sp = s->x().data();
+            for (index_t i = 0; i < numVertices; ++i) {
+                if (field[0][i] != ReadRST::FImpossible_)
+                    sp[i] = (Scalar)field[0][i];
+                else
+                    sp[i] = (Scalar)0.0;
+            }
+            s->setGrid(grid_out);
+            s->setMapping(DataBase::Mapping::Vertex);
+            data_out = s;Run a quick build/compile to verify
+        } else if (ftype == 1) { // vector per-vertex
+            Vec<Scalar, 3>::ptr v = std::make_shared<Vec<Scalar, 3>>(numVertices);
+            auto vx = v->x().data();
+            auto vy = v->y().data();
+            auto vz = v->z().data();
+            for (index_t i = 0; i < numVertices; ++i) {/home/rosba/covise/src/module/general/ReadANSYS/ReadANSYS1.cpp
+                if (field[0][i] != ReadRST::FImpossible_ && field[1][i] != ReadRST::FImpossible_ &&
+                    field[2][i] != ReadRST::FImpossible_) {
+                    vx[i] = (Scalar)field[0][i];
+                    vy[i] = (Scalar)field[1][i];
+                    vz[i] = (Scalar)field[2][i];
+                } else {
+                    vx[i] = vy[i] = vz[i] = (Scalar)0.0;
+                }
+            }
+            v->setGrid(grid_out);
+            v->setMapping(DataBase::Mapping::Vertex);
+            data_out = v;
+        }
+    } */
+}

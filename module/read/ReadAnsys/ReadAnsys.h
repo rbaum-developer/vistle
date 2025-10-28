@@ -9,6 +9,9 @@
 #include "DOFOptions.h"
 #include "AnsysConstants.h"
 
+#include <vistle/core/unstr.h>
+#include <vistle/core/vec.h>
+
 // Forward declaration to avoid circular dependency
 class ReadRST;
 
@@ -33,6 +36,16 @@ private:
     ReadRST *m_readRST;
     int m_open_err;
     int SetNodeChoices();
+    // Create a Vistle UnstructuredGrid and associated data object from ANSYS lists
+    vistle::UnstructuredGrid::ptr MakeGridAndObjects(std::vector<int> &e_l, std::vector<int> &v_l,
+                                                     std::vector<float> &x_l, std::vector<float> &y_l,
+                                                     std::vector<float> &z_l, std::vector<int> &t_l,
+                                                     const float *const *field,
+                                                     int ftype, // 0 = scalar, 1 = vector
+                                                     const int *materials //,
+                                                     //vistle::UnstructuredGrid::ptr &grid_out,
+                                                     //vistle::DataBase::ptr &data_out
+    );
 
     vistle::FloatParameter *m_scale;
     vistle::StringParameter *m_filename;
