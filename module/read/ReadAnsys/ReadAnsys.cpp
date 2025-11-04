@@ -1,5 +1,6 @@
 #include "ReadAnsys.h"
 #include "ReadRST.h"
+#include "ANSYS.h"
 #include <boost/algorithm/string/predicate.hpp>
 #include <vistle/core/lines.h>
 #include <vistle/core/object.h>
@@ -47,6 +48,241 @@ bool isCollectionFile(const std::string &fn)
             return true;
 
     return false;
+}
+
+int ReadAnsys::onlyGeometry(UnstructuredGrid::ptr entityGrid)
+{
+    ANSYS &elem_db_ = ANSYS::get_handle();
+
+    std::vector<int> dummy;
+    std::string filename = m_filename->getValue();
+    int problems = m_readRST->Read(filename, 1, dummy);
+    if (problems) {
+        std::cout << "Problems occurred while reading the file " << filename << std::endl;
+        return problems;
+    }
+
+    // now use nodeindex_, elemindex_, ety_, node_, element_
+    int numVertices = 0;
+    int elem;
+    std::vector<int> e_l;
+    std::vector<int> v_ansys_l;
+    std::vector<int> t_l;
+    int num_supp_elems = 0;
+
+    for (elem = 0; elem < m_readRST->getNumElement(); ++elem) {
+        const EType *etype = &m_readRST->getETypes()[m_readRST->getElements()[elem].type_ - 1];
+        int routine = etype->routine_;
+
+        int noNodes = getNumberOfNodes(elem, routine);
+
+        if (noNodes <= 0)
+            continue; // non-supported element
+        ++num_supp_elems;
+
+        t_l.push_back(elem_db_.ElementType(routine, noNodes));
+        e_l.push_back(numVertices);
+
+        int vert;
+
+        if (elem_db_.getVistleType(routine) == ANSYS::TYPE_4_NODE_PLANE ||
+            elem_db_.getVistleType(routine) == ANSYS::TYPE_8_NODE_PLANE) {
+            switch (noNodes) {
+            case 3:
+                for (vert = 0; vert < 3; ++vert)
+                    v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                break;
+            case 4:
+                for (vert = 0; vert < 4; ++vert)
+                    v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                break;
+            }
+        } else if (elem_db_.getVistleType(routine) == ANSYS::TYPE_10_NODE_SOLID) {
+            for (vert = 0; vert < noNodes; ++vert)
+                v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+        } else if (elem_db_.getVistleType(routine) == ANSYS::TYPE_20_NODE_SOLID) {
+            switch (noNodes) {
+            case 4:
+                for (vert = 0; vert < 4; ++vert) {
+                    if (vert != 3)
+                        v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                    else
+                        v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert + 1]);
+                }
+                break;
+            case 5:
+                for (vert = 0; vert < 5; ++vert)
+                    v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                break;
+            case 6:
+                for (vert = 0; vert < 7; ++vert) {
+                    if (vert != 3)
+                        v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                }
+                break;
+            case 8:
+                for (vert = 0; vert < 8; ++vert)
+                    v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+                break;
+            }
+        } else {
+            for (vert = 0; vert < noNodes; ++vert)
+                v_ansys_l.push_back(m_readRST->getElements()[elem].nodes_[vert]);
+        }
+        numVertices += noNodes;
+    }
+
+    // decode nodes
+    std::vector<int> nodeCodes;
+    std::vector<float> x_l, y_l, z_l;
+    for (int node = 0; node < m_readRST->getNumNodes(); ++node) {
+        nodeCodes.push_back(int(m_readRST->getNodes()[node].id_));
+        x_l.push_back(float(m_readRST->getNodes()[node].x_));
+        y_l.push_back(float(m_readRST->getNodes()[node].y_));
+        z_l.push_back(float(m_readRST->getNodes()[node].z_));
+    }
+    Map1D nodeDecode(m_readRST->getNumNodes(), &nodeCodes[0]);
+
+    std::vector<int> v_l;
+    for (size_t vi = 0; vi < v_ansys_l.size(); ++vi) {
+        v_l.push_back(nodeDecode[v_ansys_l[vi]]);
+    }
+
+    // Create Vistle UnstructuredGrid using modern pattern
+    const Index numElements = (Index)e_l.size();
+    const Index numCorners = (Index)v_l.size();
+    const Index numVerts = (Index)x_l.size();
+
+    //UnstructuredGrid::ptr entityGrid = std::make_shared<UnstructuredGrid>(numElements, numCorners, numVerts);
+
+    // Copy vertex coordinates
+    auto x_coords = entityGrid->x().data();
+    auto y_coords = entityGrid->y().data();
+    auto z_coords = entityGrid->z().data();
+    for (Index i = 0; i < numVerts; ++i) {
+        x_coords[i] = x_l[i];
+        y_coords[i] = y_l[i];
+        z_coords[i] = z_l[i];
+    }
+
+    // Copy element list
+    auto el = entityGrid->el().data();
+    for (Index i = 0; i < numElements; ++i) {
+        el[i] = e_l[i];
+    }
+
+    // Copy element types
+    auto tl = entityGrid->tl().data();
+    for (Index i = 0; i < numElements; ++i) {
+        tl[i] = t_l[i];
+    }
+
+    // Copy connectivity list
+    auto cl = entityGrid->cl().data();
+    for (Index i = 0; i < numCorners; ++i) {
+        cl[i] = v_l[i];
+    }
+
+    // make grid:
+    /* grid = MakeGridAndObjects(&e_l, std::vector<int> &v_l,
+                                                    std::vector<float> &x_l, std::vector<float> &y_l,
+                                                    std::vector<float> &z_l, std::vector<int> &t_l,
+                                                    const float *const *field,
+                                                    int ftype, // 0 = scalar, 1 = vector
+                                                    const int *materials);;
+  */
+    // Note: updateMeta and addObject are expected to be handled by the caller
+    return 0;
+}
+
+int ReadAnsys::getNumberOfNodes(int elem, int routine)
+{
+    // Count unique, non-zero node ids for the element. ANSYS elements can have
+    // up to 20 nodes (20-node solids), so iterate a safe upper bound.
+    const int MAX_ANSYS_NODES = 20;
+    int noNodes = 0;
+    const int *nodes = m_readRST->getElements()[elem].nodes_;
+    std::vector<int> seen;
+    for (int i = 0; i < MAX_ANSYS_NODES; ++i) {
+        int nid = nodes[i];
+        if (nid == 0)
+            break;
+        if (std::find(seen.begin(), seen.end(), nid) == seen.end())
+            seen.push_back(nid);
+    }
+    noNodes = static_cast<int>(seen.size());
+    /* 
+    switch (elem_db_.getVistleType(routine)) {
+    case ANSYS::TYPE_TARGET:
+    case ANSYS::TYPE_TARGET_2D:
+        // contact/target elements: skip for now
+        noNodes = 0;
+        break;
+
+    case ANSYS::TYPE_4_NODE_PLANE:
+    case ANSYS::TYPE_8_NODE_PLANE:
+    {
+        // Count unique, non-zero node entries for the element
+        const int maxnodes = ANSYS::TYPE_8_NODE_PLANE + 8; // conservative upper bound
+        const auto &nodes = m_readRST->getElements()[elem].nodes_;
+        std::vector<int> seen;
+        for (int i = 0; i < maxnodes; ++i) {
+            int nid = nodes[i];
+            if (nid == 0)
+                break;
+            if (std::find(seen.begin(), seen.end(), nid) == seen.end())
+                seen.push_back(nid);
+        }
+        noNodes = (int)seen.size();
+        break;
+    }
+
+    case ANSYS::TYPE_10_NODE_SOLID:
+        // represented as tetrahedral
+        noNodes = 4;
+        break;
+
+    case ANSYS::TYPE_20_NODE_SOLID:
+    {
+        // Count unique node ids (handles degenerate solids)
+        const int maxnodes20 = ANSYS::TYPE_20_NODE_SOLID;
+        const auto &nodes20 = m_readRST->getElements()[elem].nodes_;
+        std::vector<int> seen20;
+        for (int i = 0; i < maxnodes20; ++i) {
+            int nid = nodes20[i];
+            if (nid == 0)
+                break;
+            if (std::find(seen20.begin(), seen20.end(), nid) == seen20.end())
+                seen20.push_back(nid);
+        }
+        noNodes = (int)seen20.size();
+        break;
+    }
+
+    case ANSYS::TYPE_HEXAEDER:
+    {
+        // Handle hexahedra and degenerate variants by counting unique non-zero nodes
+        int maxnodes = UnstructuredGrid_Num_Nodes[elem_db_.getVistleType(routine)];
+        const auto &hnodes = m_readRST->getElements()[elem].nodes_;
+        std::vector<int> seen;
+        for (int i = 0; i < maxnodes; ++i) {
+            int nid = hnodes[i];
+            if (nid == 0)
+                break;
+            if (std::find(seen.begin(), seen.end(), nid) == seen.end())
+                seen.push_back(nid);
+        }
+        noNodes = (int)seen.size();
+        break;
+    }
+
+    default:
+        // Fallback: use the standard number for the covariant element type
+        noNodes = UnstructuredGrid_Num_Nodes[elem_db_.getVistleType(routine)];
+        break;
+    }
+ */
+    return noNodes;
 }
 
 ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator comm)
@@ -110,7 +346,7 @@ ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator co
     m_field = createOutputPort("data", "output data");
     m_materials = createOutputPort("materials", "output material labels");
 
-    setParallelizationMode(ParallelizeTimeAndBlocks);
+    setParallelizationMode(Serial);
     observeParameter(m_filename);
 }
 
@@ -121,19 +357,20 @@ ReadAnsys::~ReadAnsys()
 
 bool ReadAnsys::examine(const vistle::Parameter *param)
 {
-    if (param == nullptr || param == m_filename) {
+    if (!param || param == m_filename) {
+        const std::string filename = m_filename->getValue();
+        if (isCollectionFile(filename)) {
+            return true;
+        } else {
+            sendError("File %s is not of a supported kind, none of \".rst\", \".rfl\", \".rth\", \".rmg\"",
+                      filename.c_str());
+        }
+    } else {
         sendError("File %s does not exist or is not valid", m_filename->getValue().c_str());
         //m_files.clear();
         return false;
     }
-
-    const std::string filename = m_filename->getValue();
-    if (isCollectionFile(filename)) {
-        return true;
-    } else {
-        sendError("File %s is not of a supported kind, none of \".rst\", \".rfl\", \".rth\", \".rmg\"",
-                  filename.c_str());
-    }
+    //std::cout << "ReadAnsys::examine returning true with file: " << m_filename->getValue() << std::endl;
     return true;
 }
 
@@ -155,6 +392,43 @@ bool ReadAnsys::read(Token &token, int timestep, int block)
         return false;
     }
 
+    if (m_solutionChoice->getValue() == "NodeData") // Nodal solution
+    {
+        m_open_err = SetNodeChoices();
+        if (m_open_err != 0) {
+            sendWarning("Problems when setting node choices");
+            return false;
+        }
+    }
+
+    std::cout << "ReadAnsys in read method: " << filename << std::endl;
+    std::string solutionChoice = m_solutionChoice->getValue();
+    std::cout << "Solution choice: " << solutionChoice << std::endl;
+    // only geometry, nodal or element data?
+    UnstructuredGrid::ptr grid;
+    int problems = 0;
+    if (solutionChoice == "OnlyGeometry") {
+        try {
+            problems = onlyGeometry(grid);
+            updateMeta(grid);
+            addObject(m_grid_out, grid);
+        } catch (const std::exception &e) {
+            sendError("Problems occurred while reading grid information of the file");
+        }
+    }
+    /*
+    else if (solutionChoice == "NodeData") {
+        problems = nodalData();
+    }
+    else if (solutionChoice == "ElementData") {
+        problems = derivedData();
+    }
+    */
+    // readRST_.Reset(ReadRST::RADIKAL); // TODO: Fix when ReadRST is properly integrated
+    if (problems) {
+        sendError("Problems occurred while reading the file");
+        return false;
+    }
 
     return true;
 }

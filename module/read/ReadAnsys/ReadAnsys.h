@@ -36,6 +36,8 @@ private:
     ReadRST *m_readRST;
     int m_open_err;
     int SetNodeChoices();
+    int onlyGeometry(UnstructuredGrid::ptr grid);
+    int getNumberOfNodes(int elem, int routine);
     // Create a Vistle UnstructuredGrid and associated data object from ANSYS lists
     vistle::UnstructuredGrid::ptr MakeGridAndObjects(std::vector<int> &e_l, std::vector<int> &v_l,
                                                      std::vector<float> &x_l, std::vector<float> &y_l,

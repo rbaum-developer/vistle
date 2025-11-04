@@ -17,7 +17,7 @@ const char *dofname[32] = {"UX",      "UY",      "UZ",   "ROTX", "ROTY",    "ROT
                            "unused5", "unused6", "PRES", "TEMP", "VOLT",    "MAG",     "ENKE",    "ENDS",
                            "EMF",     "CURR",    "SP01", "SP02", "SP03",    "SP04",    "SP05",    "SP06"};
 
-const char *exdofname[28] = {"DENS", "VISC", "EVIS", "COND", "ECON", "LMD1", "LMD2", "LMD3", "LMD4", "LMD5",
+const char *exdofname[28] = {"DENS", "VISC", "EVIS", "COND", "ECON", "LMD1", "LMD2", "LMD3", "LMD4", "LMD5,
                              "LMD6", "EMD1", "EMD2", "EMD3", "EMD4", "EMD5", "EMD6", "PTOT", "TTOT", "PCOE",
                              "MACH", "STRM", "HFLU", "HFLM", "YPLU", "TAUW", "SPHT", "CMUV"};
  */
@@ -28,6 +28,7 @@ const char *exdofname[28] = {"DENS", "VISC", "EVIS", "COND", "ECON", "LMD1", "LM
 #include <vistle/module/module.h>
 #include <vistle/module/reader.h>
 #include <vistle/util/byteswap.h>
+#include <memory> // added for unique_ptr
 
 // Define byteSwap functions similar to ByteSwap.h
 namespace vistle {
@@ -201,11 +202,11 @@ int ReadRST::OpenFile(const std::string &filename)
     /* Manual for Mechanical APDL" (ANSYS Release 12.1)                                     */
     /***************************************************************************/
 
-    int *buf = new int[1024];
+    auto buf = std::make_unique<int[]>(1024);
     char version[150];
 
     // Reading the first 4 bytes of the binary file
-    size_t iret = fread(buf, sizeof(int), 1, rfp_);
+    size_t iret = fread(buf.get(), sizeof(int), 1, rfp_);
 
     if (iret != 1) {
         std::cerr << "Error reading rtp_" << std::endl;
@@ -218,7 +219,7 @@ int ReadRST::OpenFile(const std::string &filename)
     }
 
     // Reading the header
-    if (fread(buf + 1 + header_offset, sizeof(int), 102, rfp_) != 102) {
+    if (fread(buf.get() + 1 + header_offset, sizeof(int), 102, rfp_) != 102) {
         return (2);
     }
 
@@ -277,15 +278,16 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Title: " << header_.title_ << "   Subtitle: " << header_.subtitle_ << std::endl;
 
     // jetzt den RST-File Header reinbasteln
-    if (fread(buf, sizeof(int), 43, rfp_) != 43) {
+    if (fread(buf.get(), sizeof(int), 43, rfp_) != 43) {
+        std::cout << "error reading rfp_ file" << std::endl;
         return (2);
     }
+    std::cout << "reading rfp_ worked" << std::endl;
 
     if (SwitchEndian(buf[2]) != 12) {
         ChangeSwitch();
         if (SwitchEndian(buf[2]) == 12) {
             // file can be read using byteswap, prepare to try again
-            delete[] buf;
             fclose(rfp_);
             // try again
             std::cout << "File is byteswapped, trying again ..." << std::endl;
@@ -323,7 +325,7 @@ int ReadRST::OpenFile(const std::string &filename)
     } else {
         rstheader_.ptr_end_ = (long long)(SwitchEndian(buf[24])) << 32 | SwitchEndian(buf[23]);
     }
-    delete[] buf;
+    // buf freed automatically when it goes out of scope
     // Header fertig gelesen
 
     // Jetzt noch die Indextabellen laden
@@ -617,7 +619,7 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
     //  int *buf=NULL;
     int size, i, j, sumdof;
     long long offset;
-    double *dof;
+    std::unique_ptr<double[]> dof;
 
     // File sollte offen sein
     if (rfp_ == NULL)
@@ -680,8 +682,8 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
     int frontTeoric = sizeof(int) + sizeof(double) * solheader_.numnodes_ * sumdof;
 
     size = solheader_.numnodesdata_ * (sumdof);
-    dof = new double[size]; // Her damit!
-    if (DoubleRecord(dof, size) != size) {
+    dof = std::make_unique<double[]>(size);
+    if (DoubleRecord(dof.get(), size) != size) {
         return (5);
     }
 
@@ -781,7 +783,7 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
         // ACHTUNG: Extradofs werden falsch bezeichnet!
         // ACHTUNG: Bei Teilbereich sind alle Daten Null!
     }
-    delete[] dof;
+    // dof freed automatically
     // Alle dofs gelesen und gespeichert!
 
     return (0);
@@ -792,10 +794,11 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
 // -----------------------------------------------
 int ReadRST::ReadSHDR(int num)
 {
-    unsigned int *buf = NULL, solbuf[103];
+    unsigned int solbuf[103];
     int size, i;
     long long offset;
     double dsol[100];
+    std::unique_ptr<unsigned int[]> buf;
 
     //  SOLUTIONHEADER shdr;
 
@@ -815,34 +818,36 @@ int ReadRST::ReadSHDR(int num)
     // gewoehnlich beinhaltet sie 2*1000 Eintraege (besser 1000 64-bit Pointer)
     // dazu kommt dann immer noch der Lead-in (2 Ints) und er Lead-out (1 int)
     size = 2 * rstheader_.maxres_ + 3;
-    buf = new unsigned int[size];
+    std::unique_ptr<int[]> buf_tab = std::make_unique<int[]>(size);
 
-    if (fread(buf, sizeof(unsigned int), size, rfp_) != size) {
+    if (fread(buf_tab.get(), sizeof(int), size, rfp_) != size) {
         return (2);
     }
     // jetzt mal diese Tabelle auswerten
     solheader_.offset_ = 0;
     // Hi/Lo lesen umdrehen und einfuegen
     if (SwitchEndian_ == DO_NOT_SWITCH) {
-        solheader_.offset_ = ((long long)(buf[num + 2 + rstheader_.maxres_]) << 32 | buf[num + 1]) * 4;
+        solheader_.offset_ = ((long long)(buf_tab[num + 2 + rstheader_.maxres_]) << 32 | buf_tab[num + 1]) * 4;
         if (num < rstheader_.numsets_) {
-            solheader_.next_offset_ = ((long long)(buf[num + 3 + rstheader_.maxres_]) << 32 | buf[num + 2]) * 4;
+            solheader_.next_offset_ = ((long long)(buf_tab[num + 3 + rstheader_.maxres_]) << 32 | buf_tab[num + 2]) * 4;
         } else {
             solheader_.next_offset_ = file_size_;
         }
     } else {
         solheader_.offset_ =
-            ((long long)(SwitchEndian(buf[num + 2 + rstheader_.maxres_])) << 32 | SwitchEndian(buf[num + 1])) * 4;
+            ((long long)(SwitchEndian(buf_tab[num + 2 + rstheader_.maxres_])) << 32 | SwitchEndian(buf_tab[num + 1])) *
+            4;
         if (num < rstheader_.numsets_) {
-            solheader_.next_offset_ =
-                ((long long)(SwitchEndian(buf[num + 3 + rstheader_.maxres_])) << 32 | SwitchEndian(buf[num + 2])) * 4;
+            solheader_.next_offset_ = ((long long)(SwitchEndian(buf_tab[num + 3 + rstheader_.maxres_])) << 32 |
+                                       SwitchEndian(buf_tab[num + 2])) *
+                                      4;
         } else {
             solheader_.next_offset_ = file_size_;
         }
     }
     // jetzt da hin springen und dort einen Solution Header lesen
     fseek(rfp_, (long)solheader_.offset_, SEEK_SET);
-    if (fread(solbuf, sizeof(unsigned int), 103, rfp_) != 103) {
+    if (fread(solbuf, sizeof(int), 103, rfp_) != 103) {
         return (4);
     }
     // Jetzt die Werte decodieren und zuweisen
@@ -910,8 +915,7 @@ int ReadRST::ReadSHDR(int num)
     for (i = 0; i < solheader_.numexdofs_; ++i)
         solheader_.exdof_[i] = exdofbuf[i];
 
-    delete[] buf;
-
+    // buf_tab freed automatically when going out of scope
     return (0);
 }
 
@@ -931,7 +935,7 @@ int ReadRST::GetNodes(void)
 {
     GeometryHeader ghdr;
     long long offset;
-    int size, *buf, i, j, *etybuf;
+    int size, i, j;
 
     static const float DGR_TO_RAD = (float)M_PI / 180.0f;
 
@@ -943,33 +947,33 @@ int ReadRST::GetNodes(void)
     fseek(rfp_, (long)offset, SEEK_SET); // im pointer steht die Anzahl der int-Elemente vom Anfang
 
     size = 43;
-    buf = new int[size];
+    auto buf_up = std::make_unique<int[]>(size);
 
-    if (fread(buf, sizeof(size_t), size, rfp_) != size) {
+    if (fread(buf_up.get(), sizeof(int), size, rfp_) != size) {
         return (1);
     }
 
     // Werte zuweisen
-    ghdr.maxety_ = SwitchEndian(buf[3]);
-    ghdr.maxrl_ = SwitchEndian(buf[4]);
-    ghdr.nodes_ = SwitchEndian(buf[5]);
-    ghdr.elements_ = SwitchEndian(buf[6]);
-    ghdr.maxcoord_ = SwitchEndian(buf[7]);
-    ghdr.ptr_ety_ = SwitchEndian(buf[8]);
-    ghdr.ptr_rel_ = SwitchEndian(buf[9]);
-    ghdr.ptr_nodes_ = SwitchEndian(buf[10]);
-    ghdr.ptr_sys_ = SwitchEndian(buf[11]);
-    ghdr.ptr_eid_ = SwitchEndian(buf[12]);
-    ghdr.ptr_mas_ = SwitchEndian(buf[17]);
-    ghdr.coordsize_ = SwitchEndian(buf[18]);
-    ghdr.elemsize_ = SwitchEndian(buf[19]);
-    ghdr.etysize_ = SwitchEndian(buf[20]);
-    ghdr.rcsize_ = SwitchEndian(buf[21]);
+    ghdr.maxety_ = SwitchEndian(buf_up[3]);
+    ghdr.maxrl_ = SwitchEndian(buf_up[4]);
+    ghdr.nodes_ = SwitchEndian(buf_up[5]);
+    ghdr.elements_ = SwitchEndian(buf_up[6]);
+    ghdr.maxcoord_ = SwitchEndian(buf_up[7]);
+    ghdr.ptr_ety_ = SwitchEndian(buf_up[8]);
+    ghdr.ptr_rel_ = SwitchEndian(buf_up[9]);
+    ghdr.ptr_nodes_ = SwitchEndian(buf_up[10]);
+    ghdr.ptr_sys_ = SwitchEndian(buf_up[11]);
+    ghdr.ptr_eid_ = SwitchEndian(buf_up[12]);
+    ghdr.ptr_mas_ = SwitchEndian(buf_up[17]);
+    ghdr.coordsize_ = SwitchEndian(buf_up[18]);
+    ghdr.elemsize_ = SwitchEndian(buf_up[19]);
+    ghdr.etysize_ = SwitchEndian(buf_up[20]);
+    ghdr.rcsize_ = SwitchEndian(buf_up[21]);
 
     if (ghdr.ptr_ety_ == 0 && ghdr.ptr_rel_ == 0 && ghdr.ptr_nodes_ == 0 && ghdr.ptr_sys_ == 0 && ghdr.ptr_eid_ == 0) {
-        ghdr.ptr_ety_ = SwitchEndian(buf[22]);
-        ghdr.ptr_nodes_ = SwitchEndian(buf[28]);
-        ghdr.ptr_eid_ = SwitchEndian(buf[30]);
+        ghdr.ptr_ety_ = SwitchEndian(buf_up[22]);
+        ghdr.ptr_nodes_ = SwitchEndian(buf_up[28]);
+        ghdr.ptr_eid_ = SwitchEndian(buf_up[30]);
         mode64_ = true;
 #ifdef DEBUG
         cout << "ReadRST:: switch to 64bit mode" << endl;
@@ -1007,23 +1011,22 @@ int ReadRST::GetNodes(void)
     offset = (ghdr.ptr_ety_ + 2) * 4;
     fseek(rfp_, (long)offset, SEEK_SET);
 
-    delete[] buf;
-
-    buf = new int[ghdr.maxety_];
-    if (fread(buf, sizeof(size_t), ghdr.maxety_, rfp_) != ghdr.maxety_) {
+    // buf_up still in scope, reuse if appropriate or create new buffer:
+    auto buf2 = std::make_unique<int[]>(ghdr.maxety_);
+    if (fread(buf2.get(), sizeof(int), ghdr.maxety_, rfp_) != ghdr.maxety_) {
         return (3);
     }
 
     // ETYs im Objekt erstellen
     ety_ = new EType[ghdr.maxety_];
     anzety_ = ghdr.maxety_;
-    etybuf = new int[ghdr.etysize_];
+    auto etybuf_up = std::make_unique<int[]>(ghdr.etysize_);
 
     for (i = 0; i < ghdr.maxety_; ++i) {
         if (mode64_) {
-            offset = (SwitchEndian(buf[i]) + ghdr.ptr_ety_ + 2) * 4;
+            offset = (SwitchEndian(buf2[i]) + ghdr.ptr_ety_ + 2) * 4;
         } else {
-            offset = (SwitchEndian(buf[i]) + 2) * 4;
+            offset = (SwitchEndian(buf2[i]) + 2) * 4;
         }
 #ifdef WIN32
         _fseeki64(rfp_, offset, SEEK_SET);
@@ -1031,38 +1034,34 @@ int ReadRST::GetNodes(void)
         fseek(rfp_, offset, SEEK_SET);
 #endif
 
-        if (fread(etybuf, sizeof(size_t), ghdr.etysize_, rfp_) != ghdr.etysize_) {
+        if (fread(etybuf_up.get(), sizeof(int), ghdr.etysize_, rfp_) != ghdr.etysize_) {
             return (4);
         }
         // Daten jetzt in den ety bringen
-        ety_[i].id_ = SwitchEndian(etybuf[0]);
-        ety_[i].routine_ = SwitchEndian(etybuf[1]);
-        ety_[i].keyops_[0] = SwitchEndian(etybuf[2]);
-        ety_[i].keyops_[1] = SwitchEndian(etybuf[3]);
-        ety_[i].keyops_[2] = SwitchEndian(etybuf[4]);
-        ety_[i].keyops_[3] = SwitchEndian(etybuf[5]);
-        ety_[i].keyops_[4] = SwitchEndian(etybuf[6]);
-        ety_[i].keyops_[5] = SwitchEndian(etybuf[7]);
-        ety_[i].keyops_[6] = SwitchEndian(etybuf[8]);
-        ety_[i].keyops_[7] = SwitchEndian(etybuf[9]);
-        ety_[i].keyops_[8] = SwitchEndian(etybuf[10]);
-        ety_[i].keyops_[9] = SwitchEndian(etybuf[11]);
-        ety_[i].keyops_[10] = SwitchEndian(etybuf[12]);
-        ety_[i].keyops_[11] = SwitchEndian(etybuf[13]);
-        ety_[i].dofpernode_ = SwitchEndian(etybuf[33]);
-        ety_[i].nodes_ = SwitchEndian(etybuf[60]);
-        ety_[i].nodeforce_ = SwitchEndian(etybuf[62]);
-        ety_[i].nodestress_ = SwitchEndian(etybuf[93]);
+        ety_[i].id_ = SwitchEndian(etybuf_up[0]);
+        ety_[i].routine_ = SwitchEndian(etybuf_up[1]);
+        ety_[i].keyops_[0] = SwitchEndian(etybuf_up[2]);
+        ety_[i].keyops_[1] = SwitchEndian(etybuf_up[3]);
+        ety_[i].keyops_[2] = SwitchEndian(etybuf_up[4]);
+        ety_[i].keyops_[3] = SwitchEndian(etybuf_up[5]);
+        ety_[i].keyops_[4] = SwitchEndian(etybuf_up[6]);
+        ety_[i].keyops_[5] = SwitchEndian(etybuf_up[7]);
+        ety_[i].keyops_[6] = SwitchEndian(etybuf_up[8]);
+        ety_[i].keyops_[7] = SwitchEndian(etybuf_up[9]);
+        ety_[i].keyops_[8] = SwitchEndian(etybuf_up[10]);
+        ety_[i].keyops_[9] = SwitchEndian(etybuf_up[11]);
+        ety_[i].keyops_[10] = SwitchEndian(etybuf_up[12]);
+        ety_[i].keyops_[11] = SwitchEndian(etybuf_up[13]);
+        ety_[i].dofpernode_ = SwitchEndian(etybuf_up[33]);
+        ety_[i].nodes_ = SwitchEndian(etybuf_up[60]);
+        ety_[i].nodeforce_ = SwitchEndian(etybuf_up[62]);
+        ety_[i].nodestress_ = SwitchEndian(etybuf_up[93]);
     }
-    delete[] buf;
-    delete[] etybuf;
     // Passt schon!
     // Jetzt die Elemente selber einlesen
     element_ = new Element[ghdr.elements_];
 
     anzelem_ = ghdr.elements_;
-
-    buf = new int[2 * ghdr.elements_];
 
     // hinsurfen und lesen
     offset = (ghdr.ptr_eid_ + 2) * 4;
@@ -1072,20 +1071,25 @@ int ReadRST::GetNodes(void)
     fseek(rfp_, offset, SEEK_SET);
 #endif
 
-    if (fread(buf, sizeof(size_t), 2 * ghdr.elements_, rfp_) != 2 * ghdr.elements_) {
+    // allocate buf3 for element table
+    auto buf3 = std::make_unique<int[]>(2 * ghdr.elements_);
+    if (fread(buf3.get(), sizeof(int), 2 * ghdr.elements_, rfp_) != 2 * ghdr.elements_) {
+        std::cout << "Problems occurred while reading the element table. Size is not: " << 2 * ghdr.elements_
+                  << std::endl;
+        std::cout << "Read elements: " << fread(buf3.get(), sizeof(int), 2 * ghdr.elements_, rfp_) << std::endl;
         return (5);
     }
 
-    etybuf = new int[10];
+    auto etybuf2 = std::make_unique<int[]>(10);
     // Element accounting for user information
     int populations[ANSYS::LIB_SIZE];
     memset(populations, 0, sizeof(int) * ANSYS::LIB_SIZE);
     // Jetzt mit Schleife alle Elemente packen
     for (i = 0; i < ghdr.elements_; ++i) {
         if (mode64_) {
-            offset = (SwitchEndian(buf[2 * i]) + ghdr.ptr_eid_ + 2) * 4;
+            offset = (SwitchEndian(buf3[2 * i]) + ghdr.ptr_eid_ + 2) * 4;
         } else {
-            offset = (SwitchEndian(buf[i]) + 2) * 4;
+            offset = (SwitchEndian(buf3[i]) + 2) * 4;
         }
 
 #ifdef WIN32
@@ -1093,19 +1097,19 @@ int ReadRST::GetNodes(void)
 #else
         fseek(rfp_, offset, SEEK_SET);
 #endif
-        if (fread(etybuf, sizeof(int), 10, rfp_) != 10) {
+        if (fread(etybuf2.get(), sizeof(int), 10, rfp_) != 10) {
             return (6);
         }
         // Jetzt Daten zuweisen
-        element_[i].material_ = SwitchEndian(etybuf[0]);
-        element_[i].type_ = SwitchEndian(etybuf[1]);
-        element_[i].real_ = SwitchEndian(etybuf[2]);
-        element_[i].section_ = SwitchEndian(etybuf[3]);
-        element_[i].coord_ = SwitchEndian(etybuf[4]);
-        element_[i].death_ = SwitchEndian(etybuf[5]);
-        element_[i].solidmodel_ = SwitchEndian(etybuf[6]);
-        element_[i].shape_ = SwitchEndian(etybuf[7]);
-        element_[i].num_ = SwitchEndian(etybuf[8]);
+        element_[i].material_ = SwitchEndian(etybuf2[0]);
+        element_[i].type_ = SwitchEndian(etybuf2[1]);
+        element_[i].real_ = SwitchEndian(etybuf2[2]);
+        element_[i].section_ = SwitchEndian(etybuf2[3]);
+        element_[i].coord_ = SwitchEndian(etybuf2[4]);
+        element_[i].death_ = SwitchEndian(etybuf2[5]);
+        element_[i].solidmodel_ = SwitchEndian(etybuf2[6]);
+        element_[i].shape_ = SwitchEndian(etybuf2[7]);
+        element_[i].num_ = SwitchEndian(etybuf2[8]);
         element_[i].anznodes_ = 0;
 
         for (j = 0; j < anzety_; ++j) {
@@ -1141,8 +1145,7 @@ int ReadRST::GetNodes(void)
     // InfoMessage += ".";
     // sendInfo("%s", InfoMessage.c_str());
 
-    delete[] buf;
-    delete[] etybuf;
+    // buf3 and etybuf2 freed automatically
     return (0);
 }
 
