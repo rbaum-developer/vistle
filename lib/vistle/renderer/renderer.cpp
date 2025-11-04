@@ -29,6 +29,7 @@ Renderer::Renderer(const std::string &name, const int moduleID, mpi::communicato
     setReducePolicy(message::ReducePolicy::Never); // because of COMBINE port
     m_dataIn = createInputPort("data_in", "input data", Port::COMBINE);
 
+    setCurrentParameterGroup("Renderer");
     m_renderMode = addIntParameter("render_mode", "Render on which nodes?", LocalOnly, Parameter::Choice);
     V_ENUM_SET_CHOICES(m_renderMode, RenderMode);
 
@@ -38,11 +39,10 @@ Renderer::Renderer(const std::string &name, const int moduleID, mpi::communicato
 
     //std::cerr << "Renderer starting: rank=" << rank << std::endl;
     m_useGeometryCaches =
-        addIntParameter("_use_geometry_cache", "whether to try to cache geometry for re-use in subseqeuent timesteps",
+        addIntParameter("_use_geometry_cache", "whether to try to cache geometry for re-use in subsequent timesteps",
                         true, Parameter::Boolean);
+    setCurrentParameterGroup("");
 }
-
-Renderer::~Renderer() = default;
 
 // all of those messages have to arrive in the same order an all ranks, but other messages may be interspersed
 bool Renderer::needsSync(const message::Message &m) const

@@ -134,6 +134,7 @@ public:
     void lock();
     void unlock();
     bool quitting() const;
+    bool cancelling() const;
 
     void setId(int id);
 
@@ -195,8 +196,8 @@ public:
 
     const std::map<AvailableModule::Key, AvailableModule> &availableModules() const;
 
-    void registerObserver(StateObserver *observer) const;
-    void unregisterObserver(StateObserver *observer) const;
+    bool registerObserver(StateObserver *observer) const;
+    bool unregisterObserver(StateObserver *observer) const;
 
     bool registerRequest(const message::uuid_t &uuid);
     std::shared_ptr<message::Buffer> waitForReply(const message::uuid_t &uuid);
@@ -388,11 +389,9 @@ private:
 
     std::set<message::uuid_t> m_alreadySeen;
 
-    mutex m_replyMutex;
     std::condition_variable_any m_replyCondition;
     std::map<message::uuid_t, std::shared_ptr<message::Buffer>> m_outstandingReplies;
 
-    mutex m_slaveMutex;
     std::condition_variable_any m_slaveCondition;
 
     message::Type m_traceType;

@@ -79,6 +79,11 @@ void StateTracker::cancel()
     m_slaveCondition.notify_all();
 }
 
+bool StateTracker::cancelling() const
+{
+    return m_cancelling;
+}
+
 void StateTracker::setVerbose(bool verbose)
 {
     m_verbose = verbose;
@@ -86,7 +91,7 @@ void StateTracker::setVerbose(bool verbose)
 
 StateTracker::mutex &StateTracker::getMutex()
 {
-    return m_replyMutex;
+    return m_stateMutex;
 }
 
 void StateTracker::lock()
@@ -1044,7 +1049,7 @@ void StateTracker::cleanQueue(int id)
 
 bool StateTracker::handlePriv(const message::RemoveHub &rm)
 {
-    std::lock_guard<mutex> locker(m_slaveMutex);
+    std::lock_guard<mutex> locker(m_stateMutex);
     int id = rm.id();
 
     for (StateObserver *o: m_observers) {
@@ -1065,7 +1070,7 @@ bool StateTracker::handlePriv(const message::RemoveHub &rm)
 
 bool StateTracker::handlePriv(const message::AddHub &hub, const buffer &payload)
 {
-    std::lock_guard<mutex> locker(m_slaveMutex);
+    std::lock_guard<mutex> locker(m_stateMutex);
     for (auto &h: m_hubs) {
         if (h.id == hub.id()) {
             m_slaveCondition.notify_all();
@@ -2030,7 +2035,7 @@ std::shared_ptr<Parameter> StateTracker::getParameter(int id, const std::string 
 
 bool StateTracker::registerRequest(const message::uuid_t &uuid)
 {
-    std::lock_guard<mutex> locker(m_replyMutex);
+    std::lock_guard<mutex> locker(m_stateMutex);
 
     auto it = m_outstandingReplies.find(uuid);
     if (it != m_outstandingReplies.end()) {
@@ -2045,12 +2050,10 @@ bool StateTracker::registerRequest(const message::uuid_t &uuid)
 
 std::shared_ptr<message::Buffer> StateTracker::waitForReply(const message::uuid_t &uuid)
 {
-    std::unique_lock<mutex> locker(m_replyMutex);
+    std::unique_lock<mutex> locker(m_stateMutex);
     std::shared_ptr<message::Buffer> ret = removeRequest(uuid);
-    while (!ret && !m_quitting) {
+    while (!ret && !m_quitting && !m_cancelling) {
         m_replyCondition.wait(locker);
-        if (m_cancelling)
-            break;
         ret = removeRequest(uuid);
     }
     return ret;
@@ -2071,7 +2074,7 @@ std::shared_ptr<message::Buffer> StateTracker::removeRequest(const message::uuid
 
 bool StateTracker::registerReply(const message::uuid_t &uuid, const message::Message &msg)
 {
-    std::lock_guard<mutex> locker(m_replyMutex);
+    std::lock_guard<mutex> locker(m_stateMutex);
     auto it = m_outstandingReplies.find(uuid);
     if (it == m_outstandingReplies.end()) {
         return false;
@@ -2093,7 +2096,7 @@ bool StateTracker::registerReply(const message::uuid_t &uuid, const message::Mes
 
 std::vector<int> StateTracker::waitForSlaveHubs(size_t count)
 {
-    std::unique_lock<mutex> locker(m_slaveMutex);
+    std::unique_lock<mutex> locker(m_stateMutex);
     auto hubIds = getSlaveHubs();
     while (hubIds.size() < count) {
         m_slaveCondition.wait(locker);
@@ -2131,7 +2134,7 @@ std::vector<int> StateTracker::waitForSlaveHubs(const std::vector<std::string> &
         return found == names.size();
     };
 
-    std::unique_lock<mutex> locker(m_slaveMutex);
+    std::unique_lock<mutex> locker(m_stateMutex);
     std::vector<int> ids;
     while (!findAll(names, ids)) {
         m_slaveCondition.wait(locker);
@@ -2139,16 +2142,16 @@ std::vector<int> StateTracker::waitForSlaveHubs(const std::vector<std::string> &
     return ids;
 }
 
-void StateTracker::registerObserver(StateObserver *observer) const
+bool StateTracker::registerObserver(StateObserver *observer) const
 {
     mutex_locker guard(m_stateMutex);
-    m_observers.insert(observer);
+    return m_observers.insert(observer).second;
 }
 
-void StateTracker::unregisterObserver(StateObserver *observer) const
+bool StateTracker::unregisterObserver(StateObserver *observer) const
 {
     mutex_locker guard(m_stateMutex);
-    m_observers.erase(observer);
+    return m_observers.erase(observer) > 0;
 }
 
 ParameterSet StateTracker::getConnectedParameters(const Parameter &param, bool onlyDirect) const

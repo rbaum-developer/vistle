@@ -41,11 +41,6 @@ ReadModel::ReadModel(const std::string &name, int moduleID, mpi::communicator co
     observeParameter(m_first);
     observeParameter(m_last);
 }
-/ home / rosba / covise / src / module / general / ReadANSYS /
-    ReadANSYS1.cpp
-
-        ReadModel::~ReadModel()
-{}
 
 bool ReadModel::examine(const Parameter *param)
 {
