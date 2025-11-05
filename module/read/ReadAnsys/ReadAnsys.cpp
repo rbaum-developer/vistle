@@ -71,7 +71,11 @@ int ReadAnsys::onlyGeometry(UnstructuredGrid::ptr entityGrid)
     int num_supp_elems = 0;
 
     for (elem = 0; elem < m_readRST->getNumElement(); ++elem) {
-        const EType *etype = &m_readRST->getETypes()[m_readRST->getElements()[elem].type_ - 1];
+        int elemIndex = m_readRST->getElements()[elem].type_ - 1;
+        std::cout << "Element " << elem << " of type index " << elemIndex << std::endl;
+        const EType *etype = &m_readRST->getETypes()[elemIndex]; // no move operator defined
+        std::cout << "Element type: " << etype->id_ << std::endl;
+        std::cout << "  routine: " << etype->routine_ << std::endl;
         int routine = etype->routine_;
 
         int noNodes = getNumberOfNodes(elem, routine);
@@ -289,7 +293,7 @@ ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator co
 : Reader(name, moduleID, comm), m_readRST(new ReadRST())
 {
     m_filename = addStringParameter("filename", "name of .rst file", "", Parameter::ExistingFilename);
-    setParameterFilters(m_filename, "ANSYS Result Files (*.rst;*.rfl;*.rth;*.rmg)");
+    setParameterFilters(m_filename, "ANSYS Result Files (*.rst *.rstp *.rth *.rmg *.lnn)");
 
     // Define Parameters:
     m_scale = addFloatParameter("ScaleGridDisplacement", "scale grid displacement", 1.0);

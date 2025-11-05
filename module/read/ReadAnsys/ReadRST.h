@@ -78,9 +78,9 @@ public:
     /// delivers real time for a given set
     double GetTime(int nset);
     /// Constructor
-    ReadRST(void);
+    //ReadRST(void);
     /// Destructor
-    ~ReadRST();
+    //~ReadRST();
     /** Get number of sets
        * @return number of sets
        */
@@ -114,8 +114,8 @@ public:
     // Yeah, the style rules are here repeatedly violated.
     // So was it from the very beginning...
     SolutionHeader solheader_;
-    DOFData *DOFData_;
-    DerivedData *DerivedData_;
+    DOFData *DOFData_ = nullptr;
+    DerivedData *DerivedData_ = nullptr;
 
     /** Read solution header for a set
        * @param nset set number
@@ -142,32 +142,34 @@ public:
 
 protected:
 private:
-    enum SWITCH_ENDIAN { SWITCH, DO_NOT_SWITCH } SwitchEndian_;
+    enum SWITCH_ENDIAN { SWITCH, DO_NOT_SWITCH } SwitchEndian_ = DO_NOT_SWITCH;
     void ChangeSwitch();
     BinHeader header_;
     RstHeader rstheader_;
-    Node *node_;
-    EType *ety_;
-    Element *element_;
-    FILE *rfp_; // Result file pointer
-    bool mode64_; // file written by 64bit system
+    Node *node_ = nullptr;
+    EType *ety_ = nullptr;
+    Element *element_ = nullptr;
+    //DOFData *DOFData_ = nullptr;
+    //DerivedData *DerivedData_ = nullptr;
+    FILE *rfp_ = nullptr; // Result file pointer
+    bool mode64_ = false; // file written by 64bit system
 
-    int mmap_flag_;
-    int file_des_;
-    size_t file_size_;
-    void *mmap_ini_;
-    size_t mmap_off_;
-    size_t actual_off_;
-    size_t mmap_len_;
+    int mmap_flag_ = 0;
+    int file_des_ = 0;
+    size_t file_size_ = 0;
+    void *mmap_ini_ = nullptr;
+    size_t mmap_off_ = 0;
+    size_t actual_off_ = 0;
+    size_t mmap_len_ = 0;
 
-    int anznodes_;
-    int anzety_;
-    int anzelem_;
+    int anznodes_ = 0;
+    int anzety_ = 0;
+    int anzelem_ = 0;
 
-    int *nodeindex_;
-    int *elemindex_;
+    int *nodeindex_ = nullptr;
+    int *elemindex_ = nullptr;
 
-    double *timetable_;
+    double *timetable_ = nullptr;
 
     // interne Methoden
     int SwitchEndian(int); // Dreht die Byte-Folge um

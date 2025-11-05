@@ -24,7 +24,7 @@
 // describes the file contents.  The header contains the items listed below, always in the following order:
 
 #include <cstring> // for memset
-struct BinHeader {
+struct BinHeader { //TODO: actualize comments for verion 2025
     int filenum_; // Item 1 - File number: 12=standard header
     // int format_;                               // File Format: 0=internal, 1=external (old)
     int format_; // Item 2 - File format: 1=small, -1=large
@@ -41,8 +41,7 @@ struct BinHeader {
     char machine2_[13]; // Items 23-25 - Machine identifier in integer form
     int recordsize_; // Item 26 - System record size
     int maxfilelen_; // Item 27 - Maximum file length
-    int maxrecnum_; // Item 28 - Maximun record number
-    int cpus_; // Item 29 - Number of processors used for this task
+    int maxrecnum_; // Item 28 - Maximum record number
     // Items 31-38 - Jobname
     char title_[81]; // Items 41-60 - Main title of analysis in integer form
     char subtitle_[81]; // Items 61-80 - First subtitle in integer form
