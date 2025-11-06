@@ -320,6 +320,7 @@ ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator co
     const std::vector<std::string> MagFluxDensOpts = {"B", "BX", "BY", "BZ", "BSUM"};
     const std::vector<std::string> SolutionChoices = {"OnlyGeometry", "NoteData", "ElementData"};
 
+    //TODO: Fix that solution choice is onlyGeometry on default
     m_solutionChoice = addStringParameter("SolutionChoice", "Please enter your choice", "", Parameter::Choice);
     setParameterChoices(m_solutionChoice, SolutionChoices);
     m_NodeChoices = addStringParameter("DOF_Solution", "Degrees of freedom of the solution", "", Parameter::Choice);

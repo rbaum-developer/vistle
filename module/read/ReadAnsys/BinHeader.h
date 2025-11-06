@@ -16,25 +16,30 @@
 #ifndef BIN_HEADER_H
 #define BIN_HEADER_H
 
-
 // 27.04.2011 Eduardo Aguilar
 // The Standard Header for ANSYS Binary Files
 // Programmer's Manual for Mechanical APDL Release 12.1 (November 2009)
 // Each of the ANSYS program's binary files contains a standard, 100-integer file header that
 // describes the file contents.  The header contains the items listed below, always in the following order:
 
+// UPDATED FOR ANSYS VERSION 2025
+// 06.11.2025 Rosina Baumann
+// Programmers Manual for Mechanical APDL Release 2025 R1 (January 2025)
+// The Standard Header for ANSYS Binary Files
+// Each of the ANSYS program's binary files contains a standard, 100-integer file header that
+// describes the file contents.  The header contains the items listed below, always in the following order:
+
 #include <cstring> // for memset
-struct BinHeader { //TODO: actualize comments for verion 2025
-    int filenum_; // Item 1 - File number: 12=standard header
-    // int format_;                               // File Format: 0=internal, 1=external (old)
-    int format_; // Item 2 - File format: 1=small, -1=large
+struct BinHeader {
+    int filenum_; // Item 1 - File number: fortran unit number 12=result file
+    int format_; // Item 2 - File Format: 0=internal, -1=external  IEEE format, 1=external(old)
     int time_; // Item 3 - Time in compact form
     int date_; // Item 4 - Date in compact form
-    int unit_; // Item 5 - Units of measurement:  0=user defined, 1=SI, 2=CSG, 3=feet, 4=inches, 5=MKS, 6=MPA, 7=microMKS
+    int unit_; // Item 5 - Units of measurement:  0=user defined, 1=SI, 2=CSG, 3=feet, 4=inches, 5=MKS, 6=MPA, 7=uMKS
     int version_; // Item 10 - ANSYS release level in integer form (version of ANSYS calculating this result)
     int ansysdate_; // Item 11 - Release date of ANSYS calculating this result
     char machine_[13]; // Items 12-14 - Machine identifier in integer form calculating this result
-    char jobname_[9]; // Items 15-16 - Jobname in integer form
+    char jobname_[33]; // Items 31-38 - jobname character string (Item 15-16 is old jobname, not used anymore)
     char product_[9]; // Items 17-18 - Product name of ANSYS
     char label_[5]; // Item 19 - ANSYS special version label string
     char user_[13]; // Items 20-22 - User name in integer form
@@ -42,7 +47,6 @@ struct BinHeader { //TODO: actualize comments for verion 2025
     int recordsize_; // Item 26 - System record size
     int maxfilelen_; // Item 27 - Maximum file length
     int maxrecnum_; // Item 28 - Maximum record number
-    // Items 31-38 - Jobname
     char title_[81]; // Items 41-60 - Main title of analysis in integer form
     char subtitle_[81]; // Items 61-80 - First subtitle in integer form
     // Item 95 - Split point of the file
