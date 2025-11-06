@@ -172,7 +172,6 @@ int ReadRST::OpenFile(const std::string &filename)
     }
 
     if (get_file_size() != 0) {
-        //sendError("Could not get file size");
         std::cerr << "Could not get file size" << std::endl;
         return (1);
     }
@@ -209,7 +208,7 @@ int ReadRST::OpenFile(const std::string &filename)
     /* Manual for Mechanical APDL" (ANSYS Release 12.1)                                     */
     /***************************************************************************/
 
-    auto header_buf = std::make_unique<int32_t[]>(100);
+    int32_t *header_buf = new int32_t[100];
     char version[150];
 
     // Reading the first 4 bytes of the binary file, i.e. the record header: size of the record
@@ -222,6 +221,7 @@ int ReadRST::OpenFile(const std::string &filename)
 
     int expected_size = 100;
     if (num_items != expected_size) {
+        delete[] header_buf;
         std::cerr << "Error reading header. Is not of expected size: " << expected_size << std::endl;
         return (2);
     }
@@ -229,7 +229,8 @@ int ReadRST::OpenFile(const std::string &filename)
     int header_offset = 0;
 
     // Reading the header
-    if (fread(header_buf.get() + header_offset, sizeof(int32_t), 100, rfp_) != 100) {
+    if (fread(header_buf + header_offset, sizeof(int32_t), 100, rfp_) != 100) {
+        delete[] header_buf;
         return (2);
     }
 
@@ -252,7 +253,7 @@ int ReadRST::OpenFile(const std::string &filename)
         std::cout << "WARNING: Version may not be supported. Code only tested for ANSYS V25." << std::endl;
     }
 
-    // alle INT-Elemente umdrehen
+    // assign header fields...
     header_.filenum_ = SwitchEndian(header_buf[1]);
     header_.format_ = SwitchEndian(header_buf[2]);
     header_.time_ = SwitchEndian(header_buf[3]);
@@ -303,9 +304,14 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Title: " << header_.title_ << "   Subtitle: " << header_.subtitle_ << std::endl;
 
     // read RST-File header
-    int offset_rst = -3; // skip fortran record header
-    auto buf_rst = std::make_unique<int32_t[]>(80);
-    if (fread(buf_rst.get() + offset_rst, sizeof(int32_t), 80, rfp_) != 80) {
+    // skip fortran record header
+    int32_t lead[3];
+    fread(lead, sizeof *lead, 3, rfp_);
+    //define buffer and read
+    int32_t *buf_rst = new int32_t[73];
+    if (fread(buf_rst, sizeof(int32_t), 73, rfp_) != 73) {
+        delete[] header_buf;
+        delete[] buf_rst;
         std::cout << "error reading rfp_ rst file header" << std::endl;
         return (2);
     }
@@ -318,17 +324,19 @@ int ReadRST::OpenFile(const std::string &filename)
         if (header_.filenum_ == isResultFile) {
             // file can be read using byteswap, prepare to try again
             fclose(rfp_);
-            // try again
+            delete[] header_buf;
+            delete[] buf_rst;
             std::cout << "File is byteswapped, trying again ..." << std::endl;
             return OpenFile(filename);
         } else {
-            // file cannot be read at all
+            delete[] header_buf;
+            delete[] buf_rst;
             std::cerr << "Cannot correctly read file header. Seems not to be a result file." << std::endl;
             return 2;
         }
     }
 
-    // Werte zuweisen
+    // assign rstheader_ fields ...
     rstheader_.fun12_ = SwitchEndian(buf_rst[1]);
     rstheader_.maxnodes_ = SwitchEndian(buf_rst[2]);
     rstheader_.usednodes_ = SwitchEndian(buf_rst[3]);
@@ -354,7 +362,7 @@ int ReadRST::OpenFile(const std::string &filename)
     } else {
         rstheader_.ptr_end_ = (long long)(SwitchEndian(buf_rst[24])) << 32 | SwitchEndian(buf_rst[23]);
     }
-    // buf freed automatically when it goes out of scope
+
     std::cout << "RST File Header fun12: " << rstheader_.fun12_ << std::endl;
     std::cout << "Max nodes: " << rstheader_.maxnodes_ << std::endl;
     std::cout << "Used nodes: " << rstheader_.usednodes_ << std::endl;
@@ -367,8 +375,8 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Units of measurement: " << rstheader_.units_ << std::endl;
     std::cout << "Number of sectors: " << rstheader_.numsectors_ << std::endl;
     // Header fertig gelesen
-    header_buf.reset();
-    buf_rst.reset();
+    delete[] header_buf;
+    delete[] buf_rst;
 
     // Jetzt noch die Indextabellen laden
     int true_used_nodes = rstheader_.usednodes_;
@@ -376,9 +384,7 @@ int ReadRST::OpenFile(const std::string &filename)
     int offset = (rstheader_.ptr_node_ + 2) * sizeof(int);
     fseek(rfp_, offset, SEEK_SET);
 
-    nodeindex_ = new int[true_used_nodes /* rstheader_.usednodes_ */];
-    // NEW
-    // if(IntRecord(nodeindex_,rstheader_.usednodes_) != rstheader_.usednodes_){
+    nodeindex_ = new int[true_used_nodes];
     if (IntRecord(nodeindex_, true_used_nodes) != true_used_nodes) {
         return (3);
     }
