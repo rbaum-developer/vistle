@@ -770,6 +770,7 @@ int ANSYS::ElementType(int routine, int noNodes)
     int ret = UnstructuredGrid::NONE;
 
     // For the moment we will not consider target elements
+    // TODO: m_vistleType is empty, call ANSYS() first
     if (m_vistleType[routine] != TYPE_TARGET && m_vistleType[routine] != TYPE_TARGET_2D) {
         //ret = m_vistleType[routine];
         switch (noNodes) {

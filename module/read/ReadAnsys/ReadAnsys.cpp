@@ -71,9 +71,26 @@ int ReadAnsys::onlyGeometry(UnstructuredGrid::ptr entityGrid)
     int num_supp_elems = 0;
 
     for (elem = 0; elem < m_readRST->getNumElement(); ++elem) {
-        int elemIndex = m_readRST->getElements()[elem].type_ - 1;
-        std::cout << "Element " << elem << " of type index " << elemIndex << std::endl;
-        const EType *etype = &m_readRST->getETypes()[elemIndex]; // no move operator defined
+        if (!m_readRST) {
+            std::cerr << "ERROR: m_readRST is null\n";
+            return -1;
+        }
+        const auto numElems = m_readRST->getNumElement();
+        const auto elements = m_readRST->getElements();
+        const auto etypes = m_readRST->getETypes();
+        const auto numEtypes = m_readRST->getNumETypes();
+        if (!elements) {
+            std::cerr << "ERROR: elements array is null\n";
+            return -1;
+        }
+        int elemIndex = elements[elem].type_; //TODO: invalid element index on position 0
+        std::cout << "Element " << elem << " with index " << elemIndex << std::endl;
+        if (!etypes || elemIndex < 0 || static_cast<size_t>(elemIndex) >= numEtypes) {
+            std::cerr << "ERROR: invalid element-type index " << elemIndex << " (numEtypes=" << numEtypes
+                      << "), skipping element " << elem << "\n";
+            continue;
+        }
+        const EType *etype = &etypes[elemIndex];
         std::cout << "Element type: " << etype->id_ << std::endl;
         std::cout << "  routine: " << etype->routine_ << std::endl;
         int routine = etype->routine_;
@@ -353,6 +370,8 @@ ReadAnsys::ReadAnsys(const std::string &name, int moduleID, mpi::communicator co
 
     setParallelizationMode(Serial);
     observeParameter(m_filename);
+
+    new ANSYS(); // ensure ANSYS element database is initialized
 }
 
 ReadAnsys::~ReadAnsys()

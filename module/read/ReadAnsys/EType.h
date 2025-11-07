@@ -9,12 +9,12 @@
 #define _ETYPE_H_
 
 struct EType {
-    int id_; // Referenz Nummer des Elements
-    int routine_; // Element routine Nummer
-    int keyops_[12]; // nicht näher definierte Optionen
-    int dofpernode_; // Anzahl der DOFs pro node
-    int nodes_; // Anzahl der Knoten für dieses Element
-    int nodeforce_; // Anzahl der Knoten mit Kräften
-    int nodestress_; // Anzahl der Knoten mit Schubspannungen
+    int id_; // ITEM 1: Referenz Nummer des Elements
+    int routine_; // ITEM 2:Element routine Nummer
+    int keyops_[12]; // ITEM 3-14: nicht näher definierte Optionen
+    int dofpernode_; // ITEM 34: Anzahl der DOFs pro node
+    int nodes_; // ITEM 61: Anzahl der Knoten für dieses Element
+    int nodeforce_; // ITEM 63: Anzahl der Knoten mit Kräften
+    int nodestress_; // ITEM 94: Anzahl der Knoten mit Schubspannungen
 };
 #endif

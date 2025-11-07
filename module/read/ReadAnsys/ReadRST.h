@@ -33,6 +33,7 @@
 #include <vector>
 #include <string>
 #include <cstdio>
+#include <memory>
 
 // Forward declaration for byteSwap
 namespace vistle {
@@ -88,7 +89,8 @@ public:
     /** Get number of elements
        * @return number of elements
        */
-    int getNumElement() { return anzelem_; }
+    int getNumElement() const { return static_cast<int>(element_.size()); }
+    int getNumElement() { return static_cast<int>(element_.size()); }
     /** Get number of nodes
        * @return number of nodes
        */
@@ -96,15 +98,18 @@ public:
     /** Get array to element structures
        * @return array to element structures
        */
-    const Element *getElements() { return element_; }
+    Element *getElements() { return element_.empty() ? nullptr : element_.data(); }
+    const Element *getElements() const { return element_.empty() ? nullptr : element_.data(); }
     /** Get array to node structures
        * @return array to node structures
        */
     const Node *getNodes() { return node_; }
     /** Get array to element type structures
-       * @return array to element type structures
+       * @return array to element type structures (nullptr if none)
        */
-    const EType *getETypes() { return ety_; }
+    const EType *getETypes() const { return ety_.empty() ? nullptr : ety_.data(); }
+    /** Number of element types available */
+    std::size_t getNumETypes() const { return ety_.size(); }
 
     /** Get ANSYS version
        * @return ansys version with which the rst was simulated
@@ -147,8 +152,8 @@ private:
     BinHeader header_;
     RstHeader rstheader_;
     Node *node_ = nullptr;
-    EType *ety_ = nullptr;
-    Element *element_ = nullptr;
+    std::vector<EType> ety_;
+    std::vector<Element> element_;
     //DOFData *DOFData_ = nullptr;
     //DerivedData *DerivedData_ = nullptr;
     FILE *rfp_ = nullptr; // Result file pointer

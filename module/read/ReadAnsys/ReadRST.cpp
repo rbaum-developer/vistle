@@ -115,12 +115,10 @@ int ReadRST::Reset(int message)
         node_ = NULL;
         anznodes_ = 0;
 
-        delete[] ety_;
-        ety_ = NULL;
+        ety_.clear();
         anzety_ = 0;
 
-        delete[] element_;
-        element_ = NULL;
+        element_.clear();
         anzelem_ = 0;
 
         memset(&header_, 0, sizeof(BinHeader));
@@ -208,7 +206,8 @@ int ReadRST::OpenFile(const std::string &filename)
     /* Manual for Mechanical APDL" (ANSYS Release 12.1)                                     */
     /***************************************************************************/
 
-    int32_t *header_buf = new int32_t[100];
+    // allocate header buffer with RAII
+    auto header_buf = std::make_unique<int32_t[]>(100);
     char version[150];
 
     // Reading the first 4 bytes of the binary file, i.e. the record header: size of the record
@@ -221,7 +220,6 @@ int ReadRST::OpenFile(const std::string &filename)
 
     int expected_size = 100;
     if (num_items != expected_size) {
-        delete[] header_buf;
         std::cerr << "Error reading header. Is not of expected size: " << expected_size << std::endl;
         return (2);
     }
@@ -229,9 +227,8 @@ int ReadRST::OpenFile(const std::string &filename)
     int header_offset = 0;
 
     // Reading the header
-    if (fread(header_buf + header_offset, sizeof(int32_t), 100, rfp_) != 100) {
-        delete[] header_buf;
-        return (2);
+    if (fread(header_buf.get() + header_offset, sizeof(int32_t), 100, rfp_) != 100) {
+        return 2;
     }
 
     std::cout << "First record header value in 100 buf: " << header_buf[0] << std::endl;
@@ -305,13 +302,12 @@ int ReadRST::OpenFile(const std::string &filename)
 
     // read RST-File header
     // skip fortran record header
-    int32_t lead[3];
-    fread(lead, sizeof *lead, 3, rfp_);
+    int head_size = 3;
+    int32_t lead[head_size];
+    fread(lead, sizeof *lead, head_size, rfp_);
     //define buffer and read
-    int32_t *buf_rst = new int32_t[73];
-    if (fread(buf_rst, sizeof(int32_t), 73, rfp_) != 73) {
-        delete[] header_buf;
-        delete[] buf_rst;
+    auto buf_rst = std::make_unique<int32_t[]>(73);
+    if (fread(buf_rst.get(), sizeof(int32_t), 73, rfp_) != 73) {
         std::cout << "error reading rfp_ rst file header" << std::endl;
         return (2);
     }
@@ -324,13 +320,9 @@ int ReadRST::OpenFile(const std::string &filename)
         if (header_.filenum_ == isResultFile) {
             // file can be read using byteswap, prepare to try again
             fclose(rfp_);
-            delete[] header_buf;
-            delete[] buf_rst;
             std::cout << "File is byteswapped, trying again ..." << std::endl;
             return OpenFile(filename);
         } else {
-            delete[] header_buf;
-            delete[] buf_rst;
             std::cerr << "Cannot correctly read file header. Seems not to be a result file." << std::endl;
             return 2;
         }
@@ -375,13 +367,11 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Units of measurement: " << rstheader_.units_ << std::endl;
     std::cout << "Number of sectors: " << rstheader_.numsectors_ << std::endl;
     // Header fertig gelesen
-    delete[] header_buf;
-    delete[] buf_rst;
 
     // Jetzt noch die Indextabellen laden
     int true_used_nodes = rstheader_.usednodes_;
 
-    int offset = (rstheader_.ptr_node_ + 2) * sizeof(int);
+    int offset = (rstheader_.ptr_node_ + head_size) * sizeof(int);
     fseek(rfp_, offset, SEEK_SET);
 
     nodeindex_ = new int[true_used_nodes];
@@ -390,7 +380,7 @@ int ReadRST::OpenFile(const std::string &filename)
     }
 
     // das selbe fÃ¼r die Elemente
-    offset = (rstheader_.ptr_elm_ + 2) * sizeof(int);
+    offset = (rstheader_.ptr_elm_ + head_size) * sizeof(int);
     fseek(rfp_, offset, SEEK_SET);
     elemindex_ = new int[rstheader_.numelement_];
     if (IntRecord(elemindex_, rstheader_.numelement_) != rstheader_.numelement_) {
@@ -399,7 +389,7 @@ int ReadRST::OpenFile(const std::string &filename)
 
     // Timetable lesen
     timetable_ = new double[rstheader_.maxres_];
-    offset = (rstheader_.ptr_time_ + 2) * sizeof(int);
+    offset = (rstheader_.ptr_time_ + head_size) * sizeof(int);
     fseek(rfp_, offset, SEEK_SET);
     if (DoubleRecord(timetable_, rstheader_.maxres_) != rstheader_.maxres_) {
         return (6);
@@ -426,6 +416,7 @@ int ReadRST::IntRecord(int *buf, int len)
     return ret;
 }
 
+// TODO: leads to segmentation fault
 int ReadRST::DoubleRecord(double *buf, int len)
 {
     int ret = len;
@@ -720,6 +711,7 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
 
     size = solheader_.numnodesdata_ * (sumdof);
     dof = std::make_unique<double[]>(size);
+    // TODO: this DoubleRecord leads to segmentation fault, find out why
     if (DoubleRecord(dof.get(), size) != size) {
         return (5);
     }
@@ -1055,13 +1047,13 @@ int ReadRST::GetNodes(void)
     }
 
     // ETYs im Objekt erstellen
-    ety_ = new EType[ghdr.maxety_];
+    ety_.resize(ghdr.maxety_);
     anzety_ = ghdr.maxety_;
     auto etybuf_up = std::make_unique<int[]>(ghdr.etysize_);
 
     for (i = 0; i < ghdr.maxety_; ++i) {
         if (mode64_) {
-            offset = (SwitchEndian(buf2[i]) + ghdr.ptr_ety_ + 2) * 4;
+            offset = (SwitchEndian(buf2[i]) + ghdr.ptr_ety_ + 2) * 4; //TODO: is offset correct?
         } else {
             offset = (SwitchEndian(buf2[i]) + 2) * 4;
         }
@@ -1087,17 +1079,17 @@ int ReadRST::GetNodes(void)
         ety_[i].keyops_[7] = SwitchEndian(etybuf_up[9]);
         ety_[i].keyops_[8] = SwitchEndian(etybuf_up[10]);
         ety_[i].keyops_[9] = SwitchEndian(etybuf_up[11]);
-        ety_[i].keyops_[10] = SwitchEndian(etybuf_up[12]);
-        ety_[i].keyops_[11] = SwitchEndian(etybuf_up[13]);
-        ety_[i].dofpernode_ = SwitchEndian(etybuf_up[33]);
+        ety_[i].keyops_[10] = SwitchEndian(
+            etybuf_up[12]); //TODO: is most negative number possible in file.rst: does this make sense? offset to big?
+        ety_[i].keyops_[11] = SwitchEndian(etybuf_up[13]); //28
+        ety_[i].dofpernode_ = SwitchEndian(etybuf_up[33]); //89
         ety_[i].nodes_ = SwitchEndian(etybuf_up[60]);
         ety_[i].nodeforce_ = SwitchEndian(etybuf_up[62]);
         ety_[i].nodestress_ = SwitchEndian(etybuf_up[93]);
     }
     // Passt schon!
     // Jetzt die Elemente selber einlesen
-    element_ = new Element[ghdr.elements_];
-
+    element_.resize(ghdr.elements_);
     anzelem_ = ghdr.elements_;
 
     // hinsurfen und lesen
@@ -1132,7 +1124,7 @@ int ReadRST::GetNodes(void)
 #else
         fseek(rfp_, offset, SEEK_SET);
 #endif
-        if (fread(etybuf2.get(), sizeof(int), 10, rfp_) != 10) {
+        if (fread(etybuf2.get(), sizeof(int), 10, rfp_) != 10) { //TODO: invalid first index in type_
             return (6);
         }
         // Jetzt Daten zuweisen
