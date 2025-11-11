@@ -70,15 +70,18 @@ int ReadAnsys::onlyGeometry(UnstructuredGrid::ptr entityGrid)
     std::vector<int> t_l;
     int num_supp_elems = 0;
 
+    const auto numElems = m_readRST->getNumElement();
+    std::cout << "Number of elements in RST file: " << numElems << std::endl;
+    const auto elements = m_readRST->getElements();
+    std::cout << "Number of element types in RST file: " << m_readRST->getNumETypes() << std::endl;
+    const auto etypes = m_readRST->getETypes();
+    const auto numEtypes = m_readRST->getNumETypes();
+
     for (elem = 0; elem < m_readRST->getNumElement(); ++elem) {
         if (!m_readRST) {
             std::cerr << "ERROR: m_readRST is null\n";
             return -1;
         }
-        const auto numElems = m_readRST->getNumElement();
-        const auto elements = m_readRST->getElements();
-        const auto etypes = m_readRST->getETypes();
-        const auto numEtypes = m_readRST->getNumETypes();
         if (!elements) {
             std::cerr << "ERROR: elements array is null\n";
             return -1;

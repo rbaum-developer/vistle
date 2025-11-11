@@ -212,14 +212,12 @@ int ReadRST::OpenFile(const std::string &filename)
 
     // Reading the first 4 bytes of the binary file, i.e. the record header: size of the record
     // It is followed by -2147483648, the most negative number that can be expressed by unsigned ints
-    int32_t num_items;
+    /* int32_t num_items;
     fread(&num_items, sizeof(int32_t), 1,
-          rfp_); // ATTENTION: if you erase this line, you have to add an offset of 1 to the buffer buf below
-
-    std::cout << "num_items is: " << num_items << std::endl;
+          rfp_); */ // ATTENTION: if you erase this line, you have to add an offset of 1 to the buffer buf below
 
     int expected_size = 100;
-    if (num_items != expected_size) {
+    /* if (num_items != expected_size) {
         std::cerr << "Error reading header. Is not of expected size: " << expected_size << std::endl;
         return (2);
     }
@@ -229,13 +227,14 @@ int ReadRST::OpenFile(const std::string &filename)
     // Reading the header
     if (fread(header_buf.get() + header_offset, sizeof(int32_t), 100, rfp_) != 100) {
         return 2;
-    }
+    } */
+    ReadFortranRecordInts(header_buf.get(), 100, 1);
 
     std::cout << "First record header value in 100 buf: " << header_buf[0] << std::endl;
 
     int subversion;
     version[4] = 0;
-    memcpy(version, &header_buf[10 + header_offset], 4);
+    memcpy(version, &header_buf[10], 4);
     SwitchEndian(version, 4);
 
     int ret = sscanf(version, "%d.%d", &header_.version_, &subversion);
@@ -301,16 +300,16 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Title: " << header_.title_ << "   Subtitle: " << header_.subtitle_ << std::endl;
 
     // read RST-File header
-    // skip fortran record header
-    int head_size = 3;
-    int32_t lead[head_size];
-    fread(lead, sizeof *lead, head_size, rfp_);
-    //define buffer and read
-    auto buf_rst = std::make_unique<int32_t[]>(73);
-    if (fread(buf_rst.get(), sizeof(int32_t), 73, rfp_) != 73) {
+    int head_size = 3; // number of lead/trailer ints your file uses
+    size_t rsthead_size = 80; // number of ints in RST header
+    auto buf_rst = std::make_unique<int32_t[]>(rsthead_size);
+    if (ReadFortranRecordInts(buf_rst.get(), rsthead_size, head_size) != rsthead_size) {
         std::cout << "error reading rfp_ rst file header" << std::endl;
-        return (2);
+        return 2;
     }
+    //auto buf_rst = std::make_unique<int32_t[]>(73);
+    //memcpy(buf_rst.get(), buf_rst_vec.data(), 73 * sizeof(int32_t));
+
     std::cout << "raw buf[0]=" << buf_rst[0] << " switched=" << SwitchEndian(buf_rst[0]) << std::endl;
 
     // fun12 - unit number (result file is 12)
@@ -366,33 +365,54 @@ int ReadRST::OpenFile(const std::string &filename)
     std::cout << "Number of result sets: " << rstheader_.numsets_ << std::endl;
     std::cout << "Units of measurement: " << rstheader_.units_ << std::endl;
     std::cout << "Number of sectors: " << rstheader_.numsectors_ << std::endl;
+
+    //understand pointer:
+    std::cout << "Pointer to end of file: " << rstheader_.ptr_end_ << std::endl;
+    std::cout << "Pointer to Data Step Index Table: " << rstheader_.ptr_dsi_ << std::endl;
+    std::cout << "Pointer to Time Table: " << rstheader_.ptr_time_ << std::endl;
+    std::cout << "Pointer to Load Step Table: " << rstheader_.ptr_load_ << std::endl;
+    std::cout << "Pointer to Element Equivalence Table: " << rstheader_.ptr_elm_ << std::endl;
+    std::cout << "Pointer to Nodal Equivalence Table: " << rstheader_.ptr_node_ << std::endl;
+    std::cout << "Pointer to Geometry Description: " << rstheader_.ptr_geo_ << std::endl;
     // Header fertig gelesen
 
     // Jetzt noch die Indextabellen laden
     int true_used_nodes = rstheader_.usednodes_;
 
-    int offset = (rstheader_.ptr_node_ + head_size) * sizeof(int);
-    fseek(rfp_, offset, SEEK_SET);
+    int offset = (rstheader_.ptr_node_ + PTR_OFFSET) * sizeof(int);
+    fseek(rfp_, offset, SEEK_SET); // go to node index table position in stream
 
     nodeindex_ = new int[true_used_nodes];
-    if (IntRecord(nodeindex_, true_used_nodes) != true_used_nodes) {
+    int expectedInt = ReadFortranRecordInts(nodeindex_, true_used_nodes, 0);
+    if (expectedInt != true_used_nodes) {
         return (3);
     }
+    std::cout << "First 10 entries of Node Equivalence Table:" << std::endl;
+    for (int i = 0; i < 20 && i < true_used_nodes; ++i) {
+        std::cout << "Node " << i << ": " << nodeindex_[i] << std::endl;
+    }
 
-    // das selbe fÃ¼r die Elemente
-    offset = (rstheader_.ptr_elm_ + head_size) * sizeof(int);
-    fseek(rfp_, offset, SEEK_SET);
+    // Elementindex-Tabelle lesen
     elemindex_ = new int[rstheader_.numelement_];
-    if (IntRecord(elemindex_, rstheader_.numelement_) != rstheader_.numelement_) {
+    if (ReadFortranRecordInts(elemindex_, rstheader_.numelement_, head_size) != rstheader_.numelement_) {
         return (3);
+    }
+    // print first elements from element index table:
+    std::cout << "First 10 entries of Element Equivalence Table:" << std::endl;
+    for (int i = 0; i < 10 && i < rstheader_.numelement_; ++i) {
+        std::cout << "Element " << i << ": " << elemindex_[i] << std::endl;
     }
 
     // Timetable lesen
     timetable_ = new double[rstheader_.maxres_];
-    offset = (rstheader_.ptr_time_ + head_size) * sizeof(int);
-    fseek(rfp_, offset, SEEK_SET);
+    int time_offset = (rstheader_.ptr_time_ + PTR_OFFSET) * sizeof(int);
+    fseek(rfp_, time_offset, SEEK_SET); // go to time table position in stream
     if (DoubleRecord(timetable_, rstheader_.maxres_) != rstheader_.maxres_) {
         return (6);
+    }
+    std::cout << "First 10 entries of Time Table:" << std::endl;
+    for (int i = 0; i < 10 && i < rstheader_.maxres_; ++i) {
+        std::cout << "Time " << i << ": " << timetable_[i] << std::endl;
     }
 
     // That's all folks
@@ -571,7 +591,7 @@ int ReadRST::Read(const std::string &filename, int num, std::vector<int> &codes)
         break;
 
     case 3:
-        std::cerr << "GetData : num exceeds limits" << std::endl;
+        std::cerr << "GetData : num with value " << num << " exceeds limits" << std::endl;
         break;
 
     case 4:
@@ -654,8 +674,10 @@ int ReadRST::GetDataset(int num, std::vector<int> &codes)
         return (1);
 
     // Out of range check
-    if (num > rstheader_.numsets_ /*rstheader_.maxres_*/)
+    if (num > rstheader_.numsets_ /*rstheader_.maxres_*/) {
+        std::cout << "ReadSHDR: num " << num << " exceeds limit of " << rstheader_.numsets_ << std::endl;
         return (3);
+    }
 
     // Eventuell alte Daten LÃ¶schen
     // DOF-Liste loeschen
@@ -837,7 +859,8 @@ int ReadRST::ReadSHDR(int num)
 
     // Out of range check
     if (num > rstheader_.numsets_ /* rstheader_.maxres_ */)
-        return (3);
+        std::cout << "ReadSHDR: num " << num << " exceeds limits " << rstheader_.numsets_ << std::endl;
+    return (3);
 
     // Springe erst mal zu der DSI-Tabelle
     offset = rstheader_.ptr_dsi_ * 4;
@@ -963,7 +986,7 @@ int ReadRST::ReadSHDR(int num)
 int ReadRST::GetNodes(void)
 {
     GeometryHeader ghdr;
-    long long offset;
+    long int offset;
     int size, i, j;
 
     static const float DGR_TO_RAD = (float)M_PI / 180.0f;
@@ -972,10 +995,10 @@ int ReadRST::GetNodes(void)
         return 0;
 
     // Springe erst mal zu der Geometrie-Tabelle
-    offset = rstheader_.ptr_geo_ * 4;
-    fseek(rfp_, (long)offset, SEEK_SET); // im pointer steht die Anzahl der int-Elemente vom Anfang
+    offset = (rstheader_.ptr_geo_ + 1) * sizeof(int);
+    fseek(rfp_, offset, SEEK_SET); // im pointer steht die Anzahl der int-Elemente vom Anfang
 
-    size = 43;
+    size = 80;
     auto buf_up = std::make_unique<int[]>(size);
 
     if (fread(buf_up.get(), sizeof(int), size, rfp_) != size) {
@@ -983,41 +1006,93 @@ int ReadRST::GetNodes(void)
     }
 
     // Werte zuweisen
-    ghdr.maxety_ = SwitchEndian(buf_up[3]);
-    ghdr.maxrl_ = SwitchEndian(buf_up[4]);
-    ghdr.nodes_ = SwitchEndian(buf_up[5]);
-    ghdr.elements_ = SwitchEndian(buf_up[6]);
-    ghdr.maxcoord_ = SwitchEndian(buf_up[7]);
-    ghdr.ptr_ety_ = SwitchEndian(buf_up[8]);
-    ghdr.ptr_rel_ = SwitchEndian(buf_up[9]);
-    ghdr.ptr_nodes_ = SwitchEndian(buf_up[10]);
-    ghdr.ptr_sys_ = SwitchEndian(buf_up[11]);
-    ghdr.ptr_eid_ = SwitchEndian(buf_up[12]);
-    ghdr.ptr_mas_ = SwitchEndian(buf_up[17]);
-    ghdr.coordsize_ = SwitchEndian(buf_up[18]);
-    ghdr.elemsize_ = SwitchEndian(buf_up[19]);
-    ghdr.etysize_ = SwitchEndian(buf_up[20]);
-    ghdr.rcsize_ = SwitchEndian(buf_up[21]);
+    ghdr.maxety_ = SwitchEndian(buf_up[2]);
+    ghdr.maxrl_ = SwitchEndian(buf_up[3]);
+    ghdr.nodes_ = SwitchEndian(buf_up[4]);
+    ghdr.elements_ = SwitchEndian(buf_up[5]);
+    ghdr.maxcoord_ = SwitchEndian(buf_up[6]);
+    ghdr.ptr_ety_ = SwitchEndian(buf_up[7]);
+    ghdr.ptr_rel_ = SwitchEndian(buf_up[8]);
+    ghdr.ptr_nodes_ = SwitchEndian(buf_up[9]);
+    ghdr.ptr_sys_ = SwitchEndian(buf_up[10]);
+    ghdr.ptr_eid_ = SwitchEndian(buf_up[11]);
+    ghdr.ptr_mas_ = SwitchEndian(buf_up[16]);
+    ghdr.coordsize_ = SwitchEndian(buf_up[17]);
+    ghdr.elemsize_ = SwitchEndian(buf_up[18]);
+    ghdr.etysize_ = SwitchEndian(buf_up[19]);
+    ghdr.rcsize_ = SwitchEndian(buf_up[20]);
 
-    if (ghdr.ptr_ety_ == 0 && ghdr.ptr_rel_ == 0 && ghdr.ptr_nodes_ == 0 && ghdr.ptr_sys_ == 0 && ghdr.ptr_eid_ == 0) {
-        ghdr.ptr_ety_ = SwitchEndian(buf_up[22]);
-        ghdr.ptr_nodes_ = SwitchEndian(buf_up[28]);
-        ghdr.ptr_eid_ = SwitchEndian(buf_up[30]);
-        mode64_ = true;
-#ifdef DEBUG
-        cout << "ReadRST:: switch to 64bit mode" << endl;
-#endif
+    // If a 32-bit field is zero, the 64-bit pointer parts may be stored
+    // as hi/lo words elsewhere in buf_up. Combine hi/lo into a 64-bit value
+    // depending on endianness handling.
+    auto combine_pair = [&](int hi_idx, int lo_idx) -> long long {
+        /*         if (SwitchEndian_ == DO_NOT_SWITCH) {
+            return (static_cast<long long>(buf_up[hi_idx]) << 32) | static_cast<int>(buf_up[lo_idx]);
+        } else {
+            return (static_cast<long long>(SwitchEndian(buf_up[lo_idx])) << 32) |
+                   static_cast<int>(SwitchEndian(buf_up[hi_idx]));
+        } */
+        if (SwitchEndian_ == DO_NOT_SWITCH) {
+            return buf_up[hi_idx];
+        } else {
+            return SwitchEndian(buf_up[hi_idx]);
+        }
+    };
+
+    if (ghdr.ptr_ety_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[21] << " second part: " << buf_up[22] << std::endl;
+        ghdr.ptr_ety_ = combine_pair(21, 22);
+    }
+    if (ghdr.ptr_rel_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[23] << " second part: " << buf_up[24] << std::endl;
+        ghdr.ptr_rel_ = combine_pair(23, 24);
+    }
+    if (ghdr.ptr_nodes_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[25] << " second part: " << buf_up[26] << std::endl;
+        ghdr.ptr_nodes_ = combine_pair(25, 26);
+    }
+    if (ghdr.ptr_sys_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[27] << " second part: " << buf_up[28] << std::endl;
+        ghdr.ptr_sys_ = combine_pair(27, 28);
+    }
+    if (ghdr.ptr_eid_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[29] << " second part: " << buf_up[30] << std::endl;
+        ghdr.ptr_eid_ = combine_pair(29, 30);
+    }
+    if (ghdr.ptr_mas_ == 0) {
+        std::cout << "64 bit first part: " << buf_up[31] << " second part: " << buf_up[32] << std::endl;
+        ghdr.ptr_mas_ = combine_pair(31, 32);
     }
 
+    std::cout << "Geometry Header Info:" << std::endl;
+    std::cout << "first " << buf_up[0] << std::endl;
+    std::cout << "unused position " << buf_up[1] << std::endl;
+    std::cout << "Max ETYs: " << ghdr.maxety_ << std::endl;
+    std::cout << "Max RELs: " << ghdr.maxrl_ << std::endl;
+    std::cout << "Number of Nodes: " << ghdr.nodes_ << std::endl;
+    std::cout << "Number of Elements: " << ghdr.elements_ << std::endl;
+    std::cout << "Max Coordinates: " << ghdr.maxcoord_ << std::endl;
+    std::cout << "Pointer to ETYs: " << ghdr.ptr_ety_ << std::endl;
+    std::cout << "Pointer to RELs: " << ghdr.ptr_rel_ << std::endl;
+    std::cout << "Pointer to Nodes: " << ghdr.ptr_nodes_ << std::endl;
+    std::cout << "Pointer to System: " << ghdr.ptr_sys_ << std::endl;
+    std::cout << "Pointer to EID: " << ghdr.ptr_eid_ << std::endl;
+    std::cout << "Pointer to MAS: " << ghdr.ptr_mas_ << std::endl;
+    std::cout << "Coordinate Size: " << ghdr.coordsize_ << std::endl;
+    std::cout << "Element Size: " << ghdr.elemsize_ << std::endl;
+    std::cout << "ETY Size: " << ghdr.etysize_ << std::endl;
+    std::cout << "RC Size: " << ghdr.rcsize_ << std::endl;
+
     // Jetzt zu den KNoten springen und diese lesen (Lead in ueberspringen)
-    offset = (ghdr.ptr_nodes_ + 2) * 4;
+    offset = (ghdr.ptr_nodes_ + PTR_OFFSET) * sizeof(int);
     fseek(rfp_, (long)offset, SEEK_SET);
 
     // Jetzt die NODES definieren
     node_ = new Node[ghdr.nodes_];
+    size_t NODE_SIZE = 7;
     for (i = 0; i < ghdr.nodes_; ++i) {
-        double nodeInfo[7];
-        if (DoubleRecord(nodeInfo, 7) != 7)
+        double nodeInfo[NODE_SIZE];
+        if (DoubleRecord(nodeInfo, NODE_SIZE) != NODE_SIZE)
             return (2);
 
         // Werte jetzt umdrehen
@@ -1032,6 +1107,13 @@ int ReadRST::GetNodes(void)
         if (mode64_) {
             fseek(rfp_, 12, SEEK_CUR);
         }
+    }
+    std::cout << "First 10 Nodes:" << std::endl;
+    for (j = 0; j < 10 && j < ghdr.nodes_; ++j) {
+        std::cout << "Node " << node_[j].id_ << ": " << node_[j].x_ << ", " << node_[j].y_ << ", " << node_[j].z_
+                  << std::endl;
+        std::cout << "  Rotation angles (rad): " << node_[j].thxy_ << ", " << node_[j].thyz_ << ", " << node_[j].thzx_
+                  << std::endl;
     }
     // das war's!
     anznodes_ = ghdr.nodes_;
@@ -1195,4 +1277,40 @@ double ReadRST::GetTime(int pos)
     }
 
     return (timetable_[pos]); // Zeitwert zurÃ¼ck
+}
+
+// -----------------------------------------------
+// ReadFortranRecordInts
+// -----------------------------------------------
+// helper function to read Fortran-style records with lead/trailer integers
+int ReadRST::ReadFortranRecordInts(int32_t *buf, size_t expectedCount, int headWords)
+{
+    if (!rfp_)
+        return -1;
+
+    if (headWords > 0) {
+        std::vector<int32_t> lead(headWords);
+        if (fread(lead.data(), sizeof(int32_t), headWords, rfp_) != (size_t)headWords)
+            return -2;
+    }
+    if (expectedCount) {
+        if (buf) {
+            if (fread(buf, sizeof(int32_t), expectedCount, rfp_) != expectedCount)
+                return -3;
+        } else {
+            // no buffer provided: skip payload
+            if (fseek(rfp_, static_cast<long>(expectedCount * sizeof(int32_t)), SEEK_CUR) != 0)
+                return -3;
+        }
+    }
+    /* 
+    std::vector<int32_t> trail(headWords);
+    if (fread(trail.data(), sizeof(int32_t), headWords, rfp_) != (size_t)headWords)
+        return -4;
+
+    if (lead != trail) {
+        std::clog << "Warning: Fortran record lead/trail mismatch (lead != trail)\n";
+    } */
+
+    return static_cast<int>(expectedCount);
 }

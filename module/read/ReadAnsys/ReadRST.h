@@ -151,6 +151,7 @@ private:
     void ChangeSwitch();
     BinHeader header_;
     RstHeader rstheader_;
+    const int PTR_OFFSET = 2;
     Node *node_ = nullptr;
     std::vector<EType> ety_;
     std::vector<Element> element_;
@@ -190,5 +191,11 @@ private:
     int GetDatasetDerived(int, DerivedType); // Liste die Ergebnisdaten
     int getLengthOfElemRecord(DerivedType, EType &);
     int get_file_size();
+    // Read a Fortran/ANSYS-style record consisting of `headWords` lead ints,
+    // `expectedCount` payload ints, and `headWords` trailing ints.
+    // buf may be a pointer to a pre-allocated int32_t array of size >= expectedCount.
+    // If buf == nullptr the payload is skipped (file pointer advanced).
+    // Returns number of payload ints read (expectedCount) or negative on error.
+    int ReadFortranRecordInts(int32_t *buf, size_t expectedCount, int headWords = 1);
 };
 #endif
