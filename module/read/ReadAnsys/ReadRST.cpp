@@ -971,6 +971,14 @@ int ReadRST::ReadSHDR(int num)
     return (0);
 }
 
+
+/* U64 ReadRST::join32to64Bits( U32 a , U32 b )
+{
+   U64 result = ((U64)a) << 32
+              | ((U64)b)
+              ;
+   return result ;
+} */
 // -----------------------------------------------
 // GetNodes
 // -----------------------------------------------
@@ -999,32 +1007,35 @@ int ReadRST::GetNodes(void)
     fseek(rfp_, offset, SEEK_SET); // im pointer steht die Anzahl der int-Elemente vom Anfang
 
     size = 80;
-    auto buf_up = std::make_unique<int[]>(size);
+    auto buf_ghdr = std::make_unique<int[]>(size);
 
-    if (fread(buf_up.get(), sizeof(int), size, rfp_) != size) {
+    if (fread(buf_ghdr.get(), sizeof(int), size, rfp_) != size) {
         return (1);
     }
 
     // Werte zuweisen
-    ghdr.maxety_ = SwitchEndian(buf_up[2]);
-    ghdr.maxrl_ = SwitchEndian(buf_up[3]);
-    ghdr.nodes_ = SwitchEndian(buf_up[4]);
-    ghdr.elements_ = SwitchEndian(buf_up[5]);
-    ghdr.maxcoord_ = SwitchEndian(buf_up[6]);
-    ghdr.ptr_ety_ = SwitchEndian(buf_up[7]);
-    ghdr.ptr_rel_ = SwitchEndian(buf_up[8]);
-    ghdr.ptr_nodes_ = SwitchEndian(buf_up[9]);
-    ghdr.ptr_sys_ = SwitchEndian(buf_up[10]);
-    ghdr.ptr_eid_ = SwitchEndian(buf_up[11]);
-    ghdr.ptr_mas_ = SwitchEndian(buf_up[16]);
-    ghdr.coordsize_ = SwitchEndian(buf_up[17]);
-    ghdr.elemsize_ = SwitchEndian(buf_up[18]);
-    ghdr.etysize_ = SwitchEndian(buf_up[19]);
-    ghdr.rcsize_ = SwitchEndian(buf_up[20]);
+    ghdr.maxety_ = SwitchEndian(buf_ghdr[2]);
+    ghdr.maxrl_ = SwitchEndian(buf_ghdr[3]);
+    ghdr.nodes_ = SwitchEndian(buf_ghdr[4]);
+    ghdr.elements_ = SwitchEndian(buf_ghdr[5]);
+    ghdr.maxcoord_ = SwitchEndian(buf_ghdr[6]);
+    ghdr.ptr_ety_ = SwitchEndian(buf_ghdr[7]);
+    ghdr.ptr_rel_ = SwitchEndian(buf_ghdr[8]);
+    ghdr.ptr_nodes_ = SwitchEndian(buf_ghdr[9]);
+    ghdr.ptr_sys_ = SwitchEndian(buf_ghdr[10]);
+    ghdr.ptr_eid_ = SwitchEndian(buf_ghdr[11]);
+    ghdr.ptr_mas_ = SwitchEndian(buf_ghdr[16]);
+    ghdr.coordsize_ = SwitchEndian(buf_ghdr[17]);
+    ghdr.elemsize_ = SwitchEndian(buf_ghdr[18]);
+    ghdr.etysize_ = SwitchEndian(buf_ghdr[19]);
+    ghdr.rcsize_ = SwitchEndian(buf_ghdr[20]);
+    ghdr.numety_ = SwitchEndian(buf_ghdr[61]);
+    ghdr.mapflag_ = SwitchEndian(buf_ghdr[65]);
 
     // If a 32-bit field is zero, the 64-bit pointer parts may be stored
     // as hi/lo words elsewhere in buf_up. Combine hi/lo into a 64-bit value
     // depending on endianness handling.
+    //TODO: update with correct switching
     auto combine_pair = [&](int hi_idx, int lo_idx) -> long long {
         /*         if (SwitchEndian_ == DO_NOT_SWITCH) {
             return (static_cast<long long>(buf_up[hi_idx]) << 32) | static_cast<int>(buf_up[lo_idx]);
@@ -1032,41 +1043,43 @@ int ReadRST::GetNodes(void)
             return (static_cast<long long>(SwitchEndian(buf_up[lo_idx])) << 32) |
                    static_cast<int>(SwitchEndian(buf_up[hi_idx]));
         } */
-        if (SwitchEndian_ == DO_NOT_SWITCH) {
+        /*    if (SwitchEndian_ == DO_NOT_SWITCH) {
             return buf_up[hi_idx];
         } else {
-            return SwitchEndian(buf_up[hi_idx]);
-        }
+            return SwitchEndian(buf_ghdr[hi_idx]);
+        } */
+        return (static_cast<long long>(SwitchEndian(buf_ghdr[lo_idx])) << 32) |
+               static_cast<unsigned int>(SwitchEndian(buf_ghdr[hi_idx]));
     };
 
     if (ghdr.ptr_ety_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[21] << " second part: " << buf_up[22] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[21] << " second part: " << buf_ghdr[22] << std::endl;
         ghdr.ptr_ety_ = combine_pair(21, 22);
     }
     if (ghdr.ptr_rel_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[23] << " second part: " << buf_up[24] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[23] << " second part: " << buf_ghdr[24] << std::endl;
         ghdr.ptr_rel_ = combine_pair(23, 24);
     }
     if (ghdr.ptr_nodes_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[25] << " second part: " << buf_up[26] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[25] << " second part: " << buf_ghdr[26] << std::endl;
         ghdr.ptr_nodes_ = combine_pair(25, 26);
     }
     if (ghdr.ptr_sys_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[27] << " second part: " << buf_up[28] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[27] << " second part: " << buf_ghdr[28] << std::endl;
         ghdr.ptr_sys_ = combine_pair(27, 28);
     }
     if (ghdr.ptr_eid_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[29] << " second part: " << buf_up[30] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[29] << " second part: " << buf_ghdr[30] << std::endl;
         ghdr.ptr_eid_ = combine_pair(29, 30);
     }
     if (ghdr.ptr_mas_ == 0) {
-        std::cout << "64 bit first part: " << buf_up[31] << " second part: " << buf_up[32] << std::endl;
+        std::cout << "64 bit first part: " << buf_ghdr[31] << " second part: " << buf_ghdr[32] << std::endl;
         ghdr.ptr_mas_ = combine_pair(31, 32);
     }
 
     std::cout << "Geometry Header Info:" << std::endl;
-    std::cout << "first " << buf_up[0] << std::endl;
-    std::cout << "unused position " << buf_up[1] << std::endl;
+    std::cout << "first " << buf_ghdr[0] << std::endl;
+    std::cout << "unused position " << buf_ghdr[1] << std::endl;
     std::cout << "Max ETYs: " << ghdr.maxety_ << std::endl;
     std::cout << "Max RELs: " << ghdr.maxrl_ << std::endl;
     std::cout << "Number of Nodes: " << ghdr.nodes_ << std::endl;
@@ -1082,6 +1095,8 @@ int ReadRST::GetNodes(void)
     std::cout << "Element Size: " << ghdr.elemsize_ << std::endl;
     std::cout << "ETY Size: " << ghdr.etysize_ << std::endl;
     std::cout << "RC Size: " << ghdr.rcsize_ << std::endl;
+    std::cout << "Number of ETYs: " << ghdr.numety_ << std::endl;
+    std::cout << "Map Flag: " << ghdr.mapflag_ << std::endl;
 
     // Jetzt zu den KNoten springen und diese lesen (Lead in ueberspringen)
     offset = (ghdr.ptr_nodes_ + PTR_OFFSET) * sizeof(int);
@@ -1119,25 +1134,39 @@ int ReadRST::GetNodes(void)
     anznodes_ = ghdr.nodes_;
 
     // Jetzt die Elemente lesen: zuerst mal zu ETY um die Elementbeschreibungen zu laden
-    offset = (ghdr.ptr_ety_ + 2) * 4;
+    offset = (ghdr.ptr_ety_ + PTR_OFFSET) * sizeof(int);
     fseek(rfp_, (long)offset, SEEK_SET);
 
-    // buf_up still in scope, reuse if appropriate or create new buffer:
     auto buf2 = std::make_unique<int[]>(ghdr.maxety_);
     if (fread(buf2.get(), sizeof(int), ghdr.maxety_, rfp_) != ghdr.maxety_) {
         return (3);
     }
+    for (size_t i = 0; i < ghdr.maxety_; i++) {
+        std::cout << "buf2[" << i << "] = " << buf2[i] << std::endl;
+    }
+
 
     // ETYs im Objekt erstellen
-    ety_.resize(ghdr.maxety_);
+    int buf_size = 0;
+    int JumpOverFirsts = 0;
+    if (ghdr.mapflag_ == 1) {
+        buf_size = ghdr.numety_;
+        JumpOverFirsts = ghdr.numety_;
+    } else {
+        buf_size = ghdr.maxety_;
+    }
+
+    ety_.resize(buf_size);
     anzety_ = ghdr.maxety_;
     auto etybuf_up = std::make_unique<int[]>(ghdr.etysize_);
 
-    for (i = 0; i < ghdr.maxety_; ++i) {
+    //TODO: check if maxety_ or numety_ should be used
+    for (i = 0; i < ghdr.etysize_; ++i) {
+        std::cout << "mode64_: " << mode64_ << std::endl;
         if (mode64_) {
-            offset = (SwitchEndian(buf2[i]) + ghdr.ptr_ety_ + 2) * 4; //TODO: is offset correct?
+            offset = (i + ghdr.ptr_ety_ + PTR_OFFSET /*+ JumpOverFirsts*/) * sizeof(int);
         } else {
-            offset = (SwitchEndian(buf2[i]) + 2) * 4;
+            offset = (i + PTR_OFFSET) * sizeof(int); //TODO: is offset correct?
         }
 #ifdef WIN32
         _fseeki64(rfp_, offset, SEEK_SET);
@@ -1149,9 +1178,10 @@ int ReadRST::GetNodes(void)
             return (4);
         }
         // Daten jetzt in den ety bringen
-        ety_[i].id_ = SwitchEndian(etybuf_up[0]);
-        ety_[i].routine_ = SwitchEndian(etybuf_up[1]);
-        ety_[i].keyops_[0] = SwitchEndian(etybuf_up[2]);
+        int first = SwitchEndian(etybuf_up[0]);
+        ety_[i].id_ = SwitchEndian(etybuf_up[0]); // ITEM 1: element type reference number
+        ety_[i].routine_ = SwitchEndian(etybuf_up[1]); // ITEM 2: element routine number
+        ety_[i].keyops_[0] = SwitchEndian(etybuf_up[2]); // ITEM 3-14: keyoption values
         ety_[i].keyops_[1] = SwitchEndian(etybuf_up[3]);
         ety_[i].keyops_[2] = SwitchEndian(etybuf_up[4]);
         ety_[i].keyops_[3] = SwitchEndian(etybuf_up[5]);
@@ -1168,14 +1198,25 @@ int ReadRST::GetNodes(void)
         ety_[i].nodes_ = SwitchEndian(etybuf_up[60]);
         ety_[i].nodeforce_ = SwitchEndian(etybuf_up[62]);
         ety_[i].nodestress_ = SwitchEndian(etybuf_up[93]);
+
+        // Testausgabe:
+        std::cout << "first value: " << first << std::endl;
+        std::cout << "ETY " << i << ": ID=" << ety_[i].id_ << ", routine=" << ety_[i].routine_
+                  << ", nodes=" << ety_[i].nodes_ << ", dofpernode=" << ety_[i].dofpernode_
+                  << "  keyops: " << ety_[i].keyops_[0] << ", " << ety_[i].keyops_[1] << ", " << ety_[i].keyops_[2]
+                  << ", " << ety_[i].keyops_[3] << ", " << ety_[i].keyops_[4] << ", " << ety_[i].keyops_[5] << ", "
+                  << ety_[i].keyops_[6] << ", " << ety_[i].keyops_[7] << ", " << ety_[i].keyops_[8] << ", "
+                  << ety_[i].keyops_[9] << ", " << ety_[i].keyops_[10] << ", " << ety_[i].keyops_[11]
+                  << ", nodeforce=" << ety_[i].nodeforce_ << ", nodestress=" << ety_[i].nodestress_ << std::endl;
     }
-    // Passt schon!
+    std::cout << "Element Types (ETYs) loaded: " << ghdr.maxety_ << std::endl;
+
     // Jetzt die Elemente selber einlesen
     element_.resize(ghdr.elements_);
     anzelem_ = ghdr.elements_;
 
     // hinsurfen und lesen
-    offset = (ghdr.ptr_eid_ + 2) * 4;
+    offset = (ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
 #ifdef WIN32
     _fseeki64(rfp_, offset, SEEK_SET);
 #else
@@ -1196,9 +1237,9 @@ int ReadRST::GetNodes(void)
     // Jetzt mit Schleife alle Elemente packen
     for (i = 0; i < ghdr.elements_; ++i) {
         if (mode64_) {
-            offset = (SwitchEndian(static_cast<uint32_t>(buf3[2 * i])) + ghdr.ptr_eid_ + 2) * 4;
+            offset = (SwitchEndian(static_cast<uint32_t>(buf3[2 * i])) + ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
         } else {
-            offset = (SwitchEndian(static_cast<uint32_t>(buf3[i])) + 2) * 4;
+            offset = (SwitchEndian(static_cast<uint32_t>(buf3[i])) + PTR_OFFSET) * sizeof(int);
         }
 
 #ifdef WIN32
@@ -1219,7 +1260,7 @@ int ReadRST::GetNodes(void)
         element_[i].solidmodel_ = SwitchEndian(etybuf2[6]);
         element_[i].shape_ = SwitchEndian(etybuf2[7]);
         element_[i].num_ = SwitchEndian(etybuf2[8]);
-        element_[i].anznodes_ = 0;
+        element_[i].anznodes_ = SwitchEndian(etybuf2[10]);
 
         for (j = 0; j < anzety_; ++j) {
             if (ety_[j].id_ == element_[i].type_) // find ety position -> make faster

@@ -158,7 +158,7 @@ private:
     //DOFData *DOFData_ = nullptr;
     //DerivedData *DerivedData_ = nullptr;
     FILE *rfp_ = nullptr; // Result file pointer
-    bool mode64_ = false; // file written by 64bit system
+    bool mode64_ = true; // file written by 64bit system
 
     int mmap_flag_ = 0;
     int file_des_ = 0;
@@ -197,5 +197,9 @@ private:
     // If buf == nullptr the payload is skipped (file pointer advanced).
     // Returns number of payload ints read (expectedCount) or negative on error.
     int ReadFortranRecordInts(int32_t *buf, size_t expectedCount, int headWords = 1);
+    /* typedef unsigned long U64; // your unsigned 64-bit int typedef here
+    typedef unsigned int U32; // your unsigned 32-bit int typedef here
+
+    U64 join32to64Bits(U32 a, U32 b); */
 };
 #endif

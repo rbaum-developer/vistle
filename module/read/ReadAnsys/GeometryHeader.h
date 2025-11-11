@@ -24,5 +24,13 @@ struct GeometryHeader {
     int elemsize_; // Max. Anzahl von Punkten, die ein Element haben kann
     int etysize_; // Anzahl der items (?) die  einen Elementtyp beschreiben
     int rcsize_; // Anzahl der items, die einen RC definieren
+    int numety_; // Anzahl der definierten Elementtypen
+    int mapflag_; /* flag to indicate format of mapping index vectors for element types,
+ real constants, coordinate systems,
+and sections.
+= 0, old format with 1 vector of
+maxDef len
+= 1, new format with 2 vectors
+each having numDef len */
 };
 #endif
