@@ -227,6 +227,7 @@ int ReadAnsys::getNumberOfNodes(int elem, int routine)
     int noNodes = 0;
     const int *nodes = m_readRST->getElements()[elem].nodes_;
     std::vector<int> seen;
+    std::cout << "Node index list size" << sizeof(nodes) << std::endl;
     for (int i = 0; i < MAX_ANSYS_NODES; ++i) {
         int nid = nodes[i];
         if (nid == 0)

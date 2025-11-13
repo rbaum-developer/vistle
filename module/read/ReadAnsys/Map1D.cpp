@@ -8,9 +8,12 @@
 #include "Map1D.h"
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
 
 Map1D::Map1D(int l, const int *list): mapping_(nullptr), min_(0), max_(0), length_(0), method_(TRIVIAL)
 {
+    std::cout << "Abort at Map1D because otherwise the computer is killed" << std::endl;
+    std::abort();
     setMap(l, list);
 }
 

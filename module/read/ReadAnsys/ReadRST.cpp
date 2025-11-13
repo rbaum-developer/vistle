@@ -1053,27 +1053,21 @@ int ReadRST::GetNodes(void)
     };
 
     if (ghdr.ptr_ety_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[21] << " second part: " << buf_ghdr[22] << std::endl;
         ghdr.ptr_ety_ = combine_pair(21, 22);
     }
     if (ghdr.ptr_rel_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[23] << " second part: " << buf_ghdr[24] << std::endl;
         ghdr.ptr_rel_ = combine_pair(23, 24);
     }
     if (ghdr.ptr_nodes_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[25] << " second part: " << buf_ghdr[26] << std::endl;
         ghdr.ptr_nodes_ = combine_pair(25, 26);
     }
     if (ghdr.ptr_sys_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[27] << " second part: " << buf_ghdr[28] << std::endl;
         ghdr.ptr_sys_ = combine_pair(27, 28);
     }
     if (ghdr.ptr_eid_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[29] << " second part: " << buf_ghdr[30] << std::endl;
         ghdr.ptr_eid_ = combine_pair(29, 30);
     }
     if (ghdr.ptr_mas_ == 0) {
-        std::cout << "64 bit first part: " << buf_ghdr[31] << " second part: " << buf_ghdr[32] << std::endl;
         ghdr.ptr_mas_ = combine_pair(31, 32);
     }
 
@@ -1134,39 +1128,64 @@ int ReadRST::GetNodes(void)
     anznodes_ = ghdr.nodes_;
 
     // Jetzt die Elemente lesen: zuerst mal zu ETY um die Elementbeschreibungen zu laden
-    offset = (ghdr.ptr_ety_ + PTR_OFFSET) * sizeof(int);
-    fseek(rfp_, (long)offset, SEEK_SET);
+    // load external number mapping, if existent
+    if (ghdr.mapflag_ == 1) {
+        auto buf_exmap = std::make_unique<int[]>(ghdr.numety_);
+        offset = (ghdr.ptr_ety_ + PTR_OFFSET) * sizeof(int);
+        fseek(rfp_, (long)offset, SEEK_SET);
+        fread(buf_exmap.get(), sizeof(int), ghdr.numety_, rfp_);
 
-    auto buf2 = std::make_unique<int[]>(ghdr.maxety_);
-    if (fread(buf2.get(), sizeof(int), ghdr.maxety_, rfp_) != ghdr.maxety_) {
-        return (3);
+        for (size_t i = 0; i < ghdr.numety_; i++) {
+            std::cout << "Reading external mapping for ETY" << SwitchEndian(buf_exmap[i]) << std::endl;
+        }
     }
-    for (size_t i = 0; i < ghdr.maxety_; i++) {
-        std::cout << "buf2[" << i << "] = " << buf2[i] << std::endl;
+    // load ETY index table
+    auto buf_iety = std::make_unique<int[]>(ghdr.mapflag_ ? ghdr.numety_ : ghdr.maxety_);
+    if (ghdr.mapflag_ == 0) {
+        offset = (ghdr.ptr_ety_ + PTR_OFFSET) * sizeof(int);
+        fseek(rfp_, (long)offset, SEEK_SET);
+        fread(buf_iety.get(), sizeof(int), ghdr.maxety_, rfp_);
+
+        for (size_t i = 0; i < ghdr.maxety_; i++) {
+            std::cout << "buf_iety[" << i << "] = " << SwitchEndian(buf_iety[i]) << std::endl;
+        }
+
+    } else {
+        offset = (ghdr.ptr_ety_ + 2 * PTR_OFFSET + ghdr.numety_ + 1) * sizeof(int);
+        fseek(rfp_, (long)offset, SEEK_SET);
+        fread(buf_iety.get(), sizeof(int), ghdr.numety_, rfp_);
+
+        for (size_t i = 0; i < ghdr.maxety_; i++) {
+            std::cout << "buf_iety[" << i << "] = " << SwitchEndian(buf_iety[i]) << std::endl;
+        }
     }
 
 
     // ETYs im Objekt erstellen
-    int buf_size = 0;
-    int JumpOverFirsts = 0;
-    if (ghdr.mapflag_ == 1) {
-        buf_size = ghdr.numety_;
-        JumpOverFirsts = ghdr.numety_;
+    //int JumpOverFirsts = 0; // jump over lead-in record
+    /*  if (ghdr.mapflag_ == 1) {
+        JumpOverFirsts =
+            3 * PTR_OFFSET + 2 * ghdr.numety_; // jump over first and second record, which contain mapping info
     } else {
-        buf_size = ghdr.maxety_;
-    }
+        JumpOverFirsts = 2 * PTR_OFFSET + ghdr.maxety_; // jump over first record, which contains the index table
+    } */
 
-    ety_.resize(buf_size);
+    ety_.resize(ghdr.numety_);
     anzety_ = ghdr.maxety_;
-    auto etybuf_up = std::make_unique<int[]>(ghdr.etysize_);
 
     //TODO: check if maxety_ or numety_ should be used
-    for (i = 0; i < ghdr.etysize_; ++i) {
-        std::cout << "mode64_: " << mode64_ << std::endl;
+    int add_offset = 0; // additional offset to jump over lead-in record like size, ...
+    for (i = 0; i < ghdr.numety_; ++i) {
+        auto etybuf_up = std::make_unique<int[]>(ghdr.etysize_);
         if (mode64_) {
-            offset = (i + ghdr.ptr_ety_ + PTR_OFFSET /*+ JumpOverFirsts*/) * sizeof(int);
+            // TODO: i * PTR_OFFSET? to jump to next ETY? Does every element have a header?
+            std::cout << "------------------------------------------------------" << std::endl;
+            std::cout << "Offset is: " << (SwitchEndian(buf_iety[i])) << std::endl;
+            int jumpOverHeaderDetails = 6; // IELC array size?, -1879048192, ety_size, number?, 0, 2
+            offset = (SwitchEndian(buf_iety[i]) + ghdr.ptr_ety_ + jumpOverHeaderDetails) * sizeof(int);
         } else {
-            offset = (i + PTR_OFFSET) * sizeof(int); //TODO: is offset correct?
+            offset =
+                (SwitchEndian(buf_iety[i]) + PTR_OFFSET) * sizeof(int); //TODO: is offset correct for 32 Bit version?
         }
 #ifdef WIN32
         _fseeki64(rfp_, offset, SEEK_SET);
@@ -1199,7 +1218,6 @@ int ReadRST::GetNodes(void)
         ety_[i].nodeforce_ = SwitchEndian(etybuf_up[62]);
         ety_[i].nodestress_ = SwitchEndian(etybuf_up[93]);
 
-        // Testausgabe:
         std::cout << "first value: " << first << std::endl;
         std::cout << "ETY " << i << ": ID=" << ety_[i].id_ << ", routine=" << ety_[i].routine_
                   << ", nodes=" << ety_[i].nodes_ << ", dofpernode=" << ety_[i].dofpernode_
@@ -1209,8 +1227,6 @@ int ReadRST::GetNodes(void)
                   << ety_[i].keyops_[9] << ", " << ety_[i].keyops_[10] << ", " << ety_[i].keyops_[11]
                   << ", nodeforce=" << ety_[i].nodeforce_ << ", nodestress=" << ety_[i].nodestress_ << std::endl;
     }
-    std::cout << "Element Types (ETYs) loaded: " << ghdr.maxety_ << std::endl;
-
     // Jetzt die Elemente selber einlesen
     element_.resize(ghdr.elements_);
     anzelem_ = ghdr.elements_;
@@ -1223,23 +1239,29 @@ int ReadRST::GetNodes(void)
     fseek(rfp_, offset, SEEK_SET);
 #endif
 
-    // allocate buf3 for element table
-    auto buf3 = std::make_unique<int[]>(2 * ghdr.elements_);
-    if (fread(buf3.get(), sizeof *buf3.get(), 2 * ghdr.elements_, rfp_) != 2 * ghdr.elements_) {
+    // allocate buf_elm for element table
+    auto buf_elm = std::make_unique<int[]>(2 * ghdr.elements_);
+    if (fread(buf_elm.get(), sizeof *buf_elm.get(), 2 * ghdr.elements_, rfp_) != 2 * ghdr.elements_) {
         std::cerr << "Problems occurred while reading the element table\n";
         return 5;
     }
 
-    auto etybuf2 = std::make_unique<int[]>(10);
     // Element accounting for user information
     int populations[ANSYS::LIB_SIZE];
     memset(populations, 0, sizeof(int) * ANSYS::LIB_SIZE);
     // Jetzt mit Schleife alle Elemente packen
     for (i = 0; i < ghdr.elements_; ++i) {
+        auto buf_elem_desc = std::make_unique<int[]>(10);
+        std::cout << "Reading element descriptions..." << std::endl;
+        std::cout << "buf_elm[0]: " << SwitchEndian(buf_elm[0]) << std::endl;
+        std::cout << "buf_elm[1]: " << SwitchEndian(buf_elm[1]) << std::endl;
+        std::cout << "buf_elm[2]: " << SwitchEndian(buf_elm[2]) << std::endl;
+        std::cout << "buf_elm[3]: " << SwitchEndian(buf_elm[3]) << std::endl;
+        std::cout << "buf_elm[4]: " << SwitchEndian(buf_elm[4]) << std::endl;
         if (mode64_) {
-            offset = (SwitchEndian(static_cast<uint32_t>(buf3[2 * i])) + ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
+            offset = (SwitchEndian(buf_elm[2 * i]) + ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
         } else {
-            offset = (SwitchEndian(static_cast<uint32_t>(buf3[i])) + PTR_OFFSET) * sizeof(int);
+            offset = (SwitchEndian(static_cast<uint32_t>(buf_elm[i])) + PTR_OFFSET) * sizeof(int);
         }
 
 #ifdef WIN32
@@ -1247,21 +1269,28 @@ int ReadRST::GetNodes(void)
 #else
         fseek(rfp_, offset, SEEK_SET);
 #endif
-        if (fread(etybuf2.get(), sizeof(int), 10, rfp_) != 10) { //TODO: invalid first index in type_
+        if (fread(buf_elem_desc.get(), sizeof(int), 10, rfp_) != 10) { //TODO: invalid first index in type_
             return (6);
         }
         // Jetzt Daten zuweisen
-        element_[i].material_ = SwitchEndian(etybuf2[0]);
-        element_[i].type_ = SwitchEndian(etybuf2[1]);
-        element_[i].real_ = SwitchEndian(etybuf2[2]);
-        element_[i].section_ = SwitchEndian(etybuf2[3]);
-        element_[i].coord_ = SwitchEndian(etybuf2[4]);
-        element_[i].death_ = SwitchEndian(etybuf2[5]);
-        element_[i].solidmodel_ = SwitchEndian(etybuf2[6]);
-        element_[i].shape_ = SwitchEndian(etybuf2[7]);
-        element_[i].num_ = SwitchEndian(etybuf2[8]);
-        element_[i].anznodes_ = SwitchEndian(etybuf2[10]);
+        element_[i].material_ = SwitchEndian(buf_elem_desc[0]);
+        element_[i].type_ = SwitchEndian(buf_elem_desc[1]);
+        element_[i].real_ = SwitchEndian(buf_elem_desc[2]);
+        element_[i].section_ = SwitchEndian(buf_elem_desc[3]);
+        element_[i].coord_ = SwitchEndian(buf_elem_desc[4]);
+        element_[i].death_ = SwitchEndian(buf_elem_desc[5]);
+        element_[i].solidmodel_ = SwitchEndian(buf_elem_desc[6]);
+        element_[i].shape_ = SwitchEndian(buf_elem_desc[7]);
+        element_[i].num_ = SwitchEndian(buf_elem_desc[8]);
+        element_[i].anznodes_ = SwitchEndian(buf_elem_desc[9]);
 
+        std::cout << "Element " << i << ": ID=" << element_[i].num_ << ", type=" << element_[i].type_
+                  << ", material=" << element_[i].material_ << ", real=" << element_[i].real_
+                  << ", section=" << element_[i].section_ << ", coord=" << element_[i].coord_
+                  << ", death=" << element_[i].death_ << ", solidmodel=" << element_[i].solidmodel_
+                  << ", shape=" << element_[i].shape_ << ", anznodes=" << element_[i].anznodes_ << std::endl;
+
+        // TODO: make sure that anzety_ is the correct value to use here: Is anzety_ == ghdr.numety_? and is a additional variable even needed?
         for (j = 0; j < anzety_; ++j) {
             if (ety_[j].id_ == element_[i].type_) // find ety position -> make faster
             {
