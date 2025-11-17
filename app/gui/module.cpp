@@ -85,7 +85,10 @@ Module::Module(QGraphicsItem *parent, QString name)
     setLayer(m_layer);
 
     connect(this, &Module::callshowErrorInMainThread, this, &Module::showError);
-    connect(m_errorIndicator, &ErrorIndicator::clicked, this, &Module::showError);
+    connect(m_errorIndicator, &ErrorIndicator::clicked, [this]() {
+        m_errorState = false;
+        setStatus(m_Status);
+    });
 }
 
 Module::~Module()
@@ -223,18 +226,16 @@ void Module::setParameterDefaults()
 {
     if (vistle::message::Id::isModule(m_id)) {
         // module id already known
-#if 0
-        vistle::message::ResetParameters m(m_id);
+        vistle::message::SetParameter m(m_id);
+        m.setInit();
         m.setDestId(m_id);
         vistle::VistleConnection::the().sendMessage(m);
-#endif
     }
 }
 
 void Module::showError()
 {
     setStatus(m_Status);
-    doLayout();
 }
 
 void Module::highlightModule(int moduleId)
@@ -755,6 +756,12 @@ void Module::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
         });
     }
 
+    if (m_Status == CRASHED) {
+        m_moduleMenu->insertAction(m_deleteThisAct, m_restartAct);
+    } else {
+        m_moduleMenu->removeAction(m_restartAct);
+    }
+
     m_moduleMenu->popup(event->screenPos());
 }
 
@@ -1264,7 +1271,6 @@ void Module::clearMessages()
     m_messages.clear();
     m_errorState = false;
     setStatus(m_Status);
-    doLayout();
 }
 
 void Module::moduleMessage(int type, QString message)
@@ -1275,7 +1281,6 @@ void Module::moduleMessage(int type, QString message)
         if (!m_errorState) {
             m_errorState = true;
             setStatus(m_Status);
-            doLayout();
             emit callshowErrorInMainThread();
         }
     }

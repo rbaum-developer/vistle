@@ -29,6 +29,8 @@ ToTriangles::ToTriangles(const std::string &name, int moduleID, mpi::communicato
 
     p_transformSpheres =
         addIntParameter("transform_spheres", "also generate triangles for sphere impostors", false, Parameter::Boolean);
+    p_transformTubes =
+        addIntParameter("transform_tubes", "also generate tessellated geometry for tubes", false, Parameter::Boolean);
     p_tessellationQuality = addIntParameter("quality", "tessellation quality", 2);
     setParameterRange(p_tessellationQuality, Integer(0), Integer(10));
 
@@ -95,7 +97,7 @@ struct ReplicateData {
                     for (Index j = 0; j < numMult; ++j) {
                         Index idx = j;
                         for (Index k = 0; k < mult[j]; ++k) {
-                            assert(dout - out->x(i).data() < out->getSize());
+                            assert(dout - out->x(i).data() < static_cast<ptrdiff_t>(out->getSize()));
                             *dout++ = din[idx];
                         }
                     }
@@ -103,7 +105,7 @@ struct ReplicateData {
                     for (Index e = 0; e < numMult; ++e) {
                         Index idx = e;
                         for (Index k = 0; k < mult[e]; ++k) {
-                            assert(dout - out->x(i).data() < out->getSize());
+                            assert(dout - out->x(i).data() < static_cast<ptrdiff_t>(out->getSize()));
                             *dout++ = din[idx];
                         }
                     }
@@ -409,7 +411,7 @@ bool ToTriangles::compute()
             if (data) {
                 ndata = replicateData(data, gen.CoordPerSphere);
             }
-        } else if (lines && radius) {
+        } else if (lines && radius && p_transformTubes->getValue()) {
             const unsigned MinNumSect = 3;
             static_assert(MinNumSect >= 3, "too few sectors");
             unsigned NumSect = MinNumSect + quality;
@@ -788,6 +790,10 @@ bool ToTriangles::compute()
         }
 
         if (tri) {
+            if (tri->getNumCorners() == 0) {
+                // we only build indexed triangles, so avoid empty index array as being interpreted as non-indexed triangles
+                tri->resetCoords();
+            }
             tri->copyAttributes(obj);
             updateMeta(tri);
 
