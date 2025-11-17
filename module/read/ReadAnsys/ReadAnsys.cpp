@@ -430,7 +430,15 @@ bool ReadAnsys::read(Token &token, int timestep, int block)
     }
 
     std::cout << "ReadAnsys in read method: " << filename << std::endl;
-    std::string solutionChoice = m_solutionChoice->getValue();
+    //std::string solutionChoice = m_solutionChoice->getValue();
+    std::string solutionChoice;
+    if (m_solutionChoice == nullptr || !m_solutionChoice->getValue().empty()) {
+        solutionChoice = m_solutionChoice->getValue();
+    } else {
+        sendInfo("No solution choice selected, defaulting to only geometry");
+        solutionChoice = "OnlyGeometry";
+    }
+
     std::cout << "Solution choice: " << solutionChoice << std::endl;
     // only geometry, nodal or element data?
     UnstructuredGrid::ptr grid;

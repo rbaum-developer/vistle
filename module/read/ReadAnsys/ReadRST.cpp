@@ -1233,6 +1233,7 @@ int ReadRST::GetNodes(void)
 
     // hinsurfen und lesen
     offset = (ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
+    std::cout << "offset to element table: " << offset << std::endl;
 #ifdef WIN32
     _fseeki64(rfp_, offset, SEEK_SET);
 #else
@@ -1259,7 +1260,7 @@ int ReadRST::GetNodes(void)
         std::cout << "buf_elm[3]: " << SwitchEndian(buf_elm[3]) << std::endl;
         std::cout << "buf_elm[4]: " << SwitchEndian(buf_elm[4]) << std::endl;
         if (mode64_) {
-            offset = (SwitchEndian(buf_elm[2 * i]) + ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
+            offset = (combine_pair(buf_elm[i], buf_elm[i + ghdr.elements_]) + ghdr.ptr_eid_ + PTR_OFFSET) * sizeof(int);
         } else {
             offset = (SwitchEndian(static_cast<uint32_t>(buf_elm[i])) + PTR_OFFSET) * sizeof(int);
         }
