@@ -1181,7 +1181,7 @@ int ReadRST::GetNodes(void)
             // TODO: i * PTR_OFFSET? to jump to next ETY? Does every element have a header?
             std::cout << "------------------------------------------------------" << std::endl;
             std::cout << "Offset is: " << (SwitchEndian(buf_iety[i])) << std::endl;
-            int jumpOverHeaderDetails = 6; // IELC array size?, -1879048192, ety_size, number?, 0, 2
+            int jumpOverHeaderDetails = 0 /* 6 */; // IELC array size?, -1879048192, ety_size, number?, 0, 2
             offset = (SwitchEndian(buf_iety[i]) + ghdr.ptr_ety_ + jumpOverHeaderDetails) * sizeof(int);
         } else {
             offset =
@@ -1226,6 +1226,49 @@ int ReadRST::GetNodes(void)
                   << ety_[i].keyops_[6] << ", " << ety_[i].keyops_[7] << ", " << ety_[i].keyops_[8] << ", "
                   << ety_[i].keyops_[9] << ", " << ety_[i].keyops_[10] << ", " << ety_[i].keyops_[11]
                   << ", nodeforce=" << ety_[i].nodeforce_ << ", nodestress=" << ety_[i].nodestress_ << std::endl;
+
+        std::cout << "------------------------------------------------------" << std::endl;
+        std::cout << "without offset of 6:" << std::endl;
+        std::cout << "index " << 1 << " " << SwitchEndian(etybuf_up[1]) << std::endl;
+        std::cout << "index " << 2 << " " << SwitchEndian(etybuf_up[2]) << std::endl;
+        std::cout << "index " << 3 << " " << SwitchEndian(etybuf_up[3]) << std::endl;
+        std::cout << "index " << 4 << " " << SwitchEndian(etybuf_up[4]) << std::endl;
+        std::cout << "index " << 5 << " " << SwitchEndian(etybuf_up[5]) << std::endl;
+        std::cout << "index " << 6 << " " << SwitchEndian(etybuf_up[6]) << std::endl;
+        std::cout << "index " << 7 << " " << SwitchEndian(etybuf_up[7]) << std::endl;
+        std::cout << "index " << 8 << " " << SwitchEndian(etybuf_up[8]) << std::endl;
+        std::cout << "index " << 9 << " " << SwitchEndian(etybuf_up[9]) << std::endl;
+        std::cout << "index " << 10 << " " << SwitchEndian(etybuf_up[10]) << std::endl;
+        std::cout << "index " << 11 << " " << SwitchEndian(etybuf_up[11]) << std::endl;
+        std::cout << "index " << 12 << " " << SwitchEndian(etybuf_up[12]) << std::endl;
+        std::cout << "index " << 13 << " " << SwitchEndian(etybuf_up[13]) << std::endl;
+        std::cout << "index " << 14 << " " << SwitchEndian(etybuf_up[14]) << std::endl;
+        std::cout << "index " << 15 << " " << SwitchEndian(etybuf_up[15]) << std::endl;
+        std::cout << "index " << 16 << " " << SwitchEndian(etybuf_up[16]) << std::endl;
+        std::cout << "index " << 17 << " " << SwitchEndian(etybuf_up[17]) << std::endl;
+        std::cout << "index " << 18 << " " << SwitchEndian(etybuf_up[18]) << std::endl;
+        std::cout << "index " << 19 << " " << SwitchEndian(etybuf_up[19]) << std::endl;
+        std::cout << "index " << 20 << " " << SwitchEndian(etybuf_up[20]) << std::endl;
+        std::cout << "index " << 21 << " " << SwitchEndian(etybuf_up[21]) << std::endl;
+        std::cout << "index " << 22 << " " << SwitchEndian(etybuf_up[22]) << std::endl;
+        std::cout << "index " << 23 << " " << SwitchEndian(etybuf_up[23]) << std::endl;
+        std::cout << "index " << 24 << " " << SwitchEndian(etybuf_up[24]) << std::endl;
+        std::cout << "index " << 25 << " " << SwitchEndian(etybuf_up[25]) << std::endl;
+        std::cout << "index " << 26 << " " << SwitchEndian(etybuf_up[26]) << std::endl;
+        std::cout << "index " << 27 << " " << SwitchEndian(etybuf_up[27]) << std::endl;
+        std::cout << "index " << 28 << " " << SwitchEndian(etybuf_up[28]) << std::endl;
+        std::cout << "index " << 29 << " " << SwitchEndian(etybuf_up[29]) << std::endl;
+        std::cout << "index " << 30 << " " << SwitchEndian(etybuf_up[30]) << std::endl;
+        std::cout << "index " << 31 << " " << SwitchEndian(etybuf_up[31]) << std::endl;
+        std::cout << "index " << 32 << " " << SwitchEndian(etybuf_up[32]) << std::endl;
+        std::cout << "index " << 33 << " " << SwitchEndian(etybuf_up[33]) << std::endl;
+        std::cout << "index " << 34 << " " << SwitchEndian(etybuf_up[34]) << std::endl;
+        std::cout << "index " << 35 << " " << SwitchEndian(etybuf_up[35]) << std::endl;
+        std::cout << "index " << 36 << " " << SwitchEndian(etybuf_up[36]) << std::endl;
+        std::cout << "index " << 37 << " " << SwitchEndian(etybuf_up[37]) << std::endl;
+        std::cout << "index " << 38 << " " << SwitchEndian(etybuf_up[38]) << std::endl;
+        std::cout << "index " << 39 << " " << SwitchEndian(etybuf_up[39]) << std::endl;
+        std::cout << "index " << 40 << " " << SwitchEndian(etybuf_up[40]) << std::endl;
     }
     // Jetzt die Elemente selber einlesen
     element_.resize(ghdr.elements_);

@@ -6,12 +6,13 @@
 #include <vistle/core/points.h>
 #include <vistle/core/scalar.h>
 #include <vistle/core/vec.h>
+
 class ReadCsv: public vistle::Reader {
 public:
     ReadCsv(const std::string &name, int moduleID, mpi::communicator comm);
+    static const size_t NUM_DATA_FIELDS = 4;
 
 private:
-    static const size_t NUM_DATA_FIELDS = 4;
     static const size_t NUM_COORD_FIELDS = 3;
     static const size_t NUM_FIELDS = NUM_COORD_FIELDS + NUM_DATA_FIELDS;
 
@@ -19,9 +20,9 @@ private:
     template<char delimiter>
     bool readFile(Token &token, int timestep, int block);
 
-    template<char Delimiter>
-    void readLayer(size_t layer, vistle::Points::ptr &points,
-                   std::array<vistle::Vec<vistle::Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
+    template<char delimiter>
+    size_t readLayer(size_t layer, vistle::Points::ptr &points,
+                     std::array<vistle::Vec<vistle::Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
     bool read(Token &token, int timestep = -1, int block = -1) override;
 
     vistle::StringParameter *m_directory = nullptr;
@@ -29,6 +30,7 @@ private:
 
     vistle::IntParameter *m_layerMode = nullptr;
     vistle::IntParameter *m_layersInOneObject = nullptr;
+    vistle::IntParameter *m_timestepsInRows = nullptr;
     vistle::FloatParameter *m_layerOffset = nullptr;
 
 

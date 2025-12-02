@@ -31,6 +31,9 @@ ReadCsv::ReadCsv(const std::string &name, int moduleID, mpi::communicator comm):
     m_layersInOneObject = addIntParameter(
         "single_object", "combine all files to a single points object with optional data", false, Parameter::Boolean);
     observeParameter(m_layersInOneObject);
+    m_timestepsInRows =
+        addIntParameter("timesteps_in_rows", "read every point as a separate timestep", false, Parameter::Boolean);
+    observeParameter(m_timestepsInRows);
     static const std::array<std::string, NUM_COORD_FIELDS> coordNames = {"x", "y", "z"};
     for (size_t i = 0; i < NUM_COORD_FIELDS; i++) {
         m_selectionParams[i] =
@@ -219,8 +222,8 @@ vistle::Vector3 layerOffset(LayerMode mode, float offset)
 }
 
 template<char Delimiter>
-void ReadCsv::readLayer(size_t layer, vistle::Points::ptr &points,
-                        std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> &dataFields)
+size_t ReadCsv::readLayer(size_t layer, vistle::Points::ptr &points,
+                          std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> &dataFields)
 {
     CSVReader<NUM_FIELDS, Delimiter> in(getFilename(m_directory->getValue(), layer));
     std::array<const char *, NUM_FIELDS> colNames;
@@ -232,6 +235,7 @@ void ReadCsv::readLayer(size_t layer, vistle::Points::ptr &points,
     std::array<float, NUM_FIELDS> csvData;
     csvData.fill(0);
     auto lo = layerOffset(static_cast<LayerMode>(m_layerMode->getValue()), m_layerOffset->getValue());
+    size_t rowNumber = 0;
     while (read_row(in, csvData)) {
         points->x().push_back(csvData[0] + lo[0] * layer);
         points->y().push_back(csvData[1] + lo[1] * layer);
@@ -245,10 +249,11 @@ void ReadCsv::readLayer(size_t layer, vistle::Points::ptr &points,
                 dataFields[i]->x().push_back(csvData[i + NUM_COORD_FIELDS]);
             }
         }
-        std::cerr << "added pint 1 " << csvData[0] << " " << csvData[1] << " " << csvData[2] << std::endl;
-        std::cerr << "added point 2 " << points->x().back() << " " << points->y().back() << " " << points->z().back()
-                  << std::endl;
+        std::cerr << "Row " << rowNumber << ": added point (" << points->x().back() << ", " << points->y().back()
+                  << ", " << points->z().back() << ")" << std::endl;
+        ++rowNumber;
     }
+    return rowNumber;
 }
 
 template<char Delimiter>
@@ -259,36 +264,91 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
     }
     auto layer = m_filename->getValue() > 0 ? m_filename->getValue() - 1 : block;
     sendInfo("Reading block %d, %s", block, getFilename(m_directory->getValue(), layer).c_str());
-    vistle::Points::ptr points = std::make_shared<vistle::Points>((size_t)0);
 
-    std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> dataObjects;
-    for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
-        if (getDataSelection(i) != 0) {
-            dataObjects[i] = std::make_shared<vistle::Vec<Scalar>>((size_t)0);
+    if (m_timestepsInRows->getValue()) {
+        // Each row is a separate timestep with a single point
+        CSVReader<NUM_FIELDS, Delimiter> in(getFilename(m_directory->getValue(), layer));
+        std::array<const char *, NUM_FIELDS> colNames;
+        for (size_t i = 0; i < NUM_FIELDS; i++) {
+            colNames[i] = m_choices[m_selectionParams[i]->getValue()].c_str();
         }
-    }
-    if (m_layersInOneObject->getValue()) {
-        for (size_t i = 0; i < m_filename->choices().size() - 1; i++) {
-            readLayer<Delimiter>(i, points, dataObjects);
+        read_header(in, colNames);
+        std::array<float, NUM_FIELDS> csvData;
+        csvData.fill(0);
+        auto lo = layerOffset(static_cast<LayerMode>(m_layerMode->getValue()), m_layerOffset->getValue());
+        size_t rowNumber = 0;
+
+        while (read_row(in, csvData)) {
+            vistle::Points::ptr points = std::make_shared<vistle::Points>((size_t)1);
+            std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> dataObjects;
+
+            points->x()[0] = csvData[0] + lo[0] * layer;
+            points->y()[0] = csvData[1] + lo[1] * layer;
+            if (getCoordSelection(2) != 0) {
+                points->z()[0] = csvData[2] + lo[2] * layer;
+            } else {
+                points->z()[0] = lo[2] * layer;
+            }
+
+            for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
+                if (getDataSelection(i) != 0) {
+                    dataObjects[i] = std::make_shared<vistle::Vec<Scalar>>((size_t)1);
+                    dataObjects[i]->x()[0] = csvData[i + NUM_COORD_FIELDS];
+                }
+            }
+
+            points->setBlock(block);
+            points->setTimestep(static_cast<int>(rowNumber));
+            token.applyMeta(points);
+            token.addObject("points_out", points);
+
+            for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
+                if (dataObjects[i]) {
+                    dataObjects[i]->setMapping(DataBase::Vertex);
+                    dataObjects[i]->setGrid(points);
+                    dataObjects[i]->setBlock(block);
+                    dataObjects[i]->setTimestep(static_cast<int>(rowNumber));
+                    dataObjects[i]->describe(m_choices[getDataSelection(i)], id());
+                    token.applyMeta(dataObjects[i]);
+                    token.addObject("data_out" + std::to_string(i), dataObjects[i]);
+                }
+            }
+            ++rowNumber;
         }
+        sendInfo("Read %zu rows as timesteps from layer %zu", rowNumber, layer);
     } else {
-        readLayer<Delimiter>(layer, points, dataObjects);
-    }
-    points->setBlock(block);
-    points->setTimestep(timestep);
+        // Original behavior: all rows in one timestep
+        vistle::Points::ptr points = std::make_shared<vistle::Points>((size_t)0);
+        std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> dataObjects;
+        for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
+            if (getDataSelection(i) != 0) {
+                dataObjects[i] = std::make_shared<vistle::Vec<Scalar>>((size_t)0);
+            }
+        }
 
-    token.applyMeta(points);
-    token.addObject("points_out", points);
-    for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
-        if (dataObjects[i]) {
-            dataObjects[i]->setMapping(DataBase::Vertex);
-            dataObjects[i]->setGrid(points);
-            dataObjects[i]->setBlock(block);
-            dataObjects[i]->setTimestep(timestep);
+        if (m_layersInOneObject->getValue()) {
+            for (size_t i = 0; i < m_filename->choices().size() - 1; i++) {
+                readLayer<Delimiter>(i, points, dataObjects);
+            }
+        } else {
+            readLayer<Delimiter>(layer, points, dataObjects);
+        }
 
-            dataObjects[i]->describe(m_choices[getDataSelection(i)], id());
-            token.applyMeta(dataObjects[i]);
-            token.addObject("data_out" + std::to_string(i), dataObjects[i]);
+        points->setBlock(block);
+        points->setTimestep(timestep);
+        token.applyMeta(points);
+        token.addObject("points_out", points);
+
+        for (size_t i = 0; i < NUM_DATA_FIELDS; i++) {
+            if (dataObjects[i]) {
+                dataObjects[i]->setMapping(DataBase::Vertex);
+                dataObjects[i]->setGrid(points);
+                dataObjects[i]->setBlock(block);
+                dataObjects[i]->setTimestep(timestep);
+                dataObjects[i]->describe(m_choices[getDataSelection(i)], id());
+                token.applyMeta(dataObjects[i]);
+                token.addObject("data_out" + std::to_string(i), dataObjects[i]);
+            }
         }
     }
     return true;
@@ -319,3 +379,15 @@ vistle::Integer ReadCsv::getDataSelection(size_t i)
 {
     return m_selectionParams[i + NUM_COORD_FIELDS]->getValue();
 }
+
+// Explicit template instantiations for each delimiter
+template size_t ReadCsv::readLayer<','>(size_t layer, vistle::Points::ptr &points,
+                                        std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
+template size_t ReadCsv::readLayer<';'>(size_t layer, vistle::Points::ptr &points,
+                                        std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
+template size_t ReadCsv::readLayer<'\t'>(size_t layer, vistle::Points::ptr &points,
+                                         std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
+
+template bool ReadCsv::readFile<','>(Token &token, int timestep, int block);
+template bool ReadCsv::readFile<';'>(Token &token, int timestep, int block);
+template bool ReadCsv::readFile<'\t'>(Token &token, int timestep, int block);
