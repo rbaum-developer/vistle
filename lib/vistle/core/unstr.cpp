@@ -6,6 +6,7 @@
 #include <algorithm>
 #include "cellalgorithm.h"
 #include <set>
+#include <vistle/util/meta.h>
 #include "validate.h"
 
 //#define INTERPOL_DEBUG
@@ -15,17 +16,6 @@ namespace vistle {
 
 static const Scalar Epsilon = 1e-7;
 
-template<std::size_t N>
-struct num {
-    static const constexpr auto value = N;
-};
-
-template<class F, std::size_t... Is>
-void for_(F func, std::index_sequence<Is...>)
-{
-    (func(num<Is>{}), ...);
-}
-
 constexpr std::array<const char *, UnstructuredGrid::NUM_TYPES> TypeNames = {
     "NONE", "POINT",       "",           "BAR",        "POLYLINE", "TRIANGLE", "", "POLYGON", "",
     "QUAD", "TETRAHEDRON", "POLYHEDRON", "HEXAHEDRON", "PRISM",    "PYRAMID"};
@@ -33,11 +23,11 @@ constexpr std::array<const char *, UnstructuredGrid::NUM_TYPES> TypeNames = {
 constexpr std::array<const char *, UnstructuredGrid::NUM_TYPES> TypeNameAbbreviations = {
     "NONE", "PT", "", "BAR", "LINE", "TRI", "", "PLG", "", "QUAD", "TETRA", "PLH", "HEXA", "PRISM", "PYR"};
 
-constexpr int NumSupportedTypes = 11;
+constexpr int NumSupportedTypes = 12;
 constexpr std::array<UnstructuredGrid::Type, NumSupportedTypes> SupportedTypes = {
-    UnstructuredGrid::POINT,      UnstructuredGrid::BAR,   UnstructuredGrid::POLYLINE,    UnstructuredGrid::TRIANGLE,
-    UnstructuredGrid::POLYGON,    UnstructuredGrid::QUAD,  UnstructuredGrid::TETRAHEDRON, UnstructuredGrid::POLYHEDRON,
-    UnstructuredGrid::HEXAHEDRON, UnstructuredGrid::PRISM, UnstructuredGrid::PYRAMID};
+    UnstructuredGrid::NONE,       UnstructuredGrid::POINT,      UnstructuredGrid::BAR,   UnstructuredGrid::POLYLINE,
+    UnstructuredGrid::TRIANGLE,   UnstructuredGrid::POLYGON,    UnstructuredGrid::QUAD,  UnstructuredGrid::TETRAHEDRON,
+    UnstructuredGrid::POLYHEDRON, UnstructuredGrid::HEXAHEDRON, UnstructuredGrid::PRISM, UnstructuredGrid::PYRAMID};
 
 const char *UnstructuredGrid::toString(Type t, bool abbreviation)
 {
@@ -219,12 +209,12 @@ Index UnstructuredGrid::cellNumVertices(Index elem) const
 
 Scalar UnstructuredGrid::cellEdgeLength(Index elem) const
 {
+    auto t = tl()[elem];
     Scalar retval = -1;
-    auto type = tl()[elem];
-    for_<NumSupportedTypes>([&](auto i) {
-        if (SupportedTypes[i.value] == type) {
-            retval = edgeLength<SupportedTypes[i.value]>(cellNumVertices(elem), &cl()[el()[elem]],
-                                                         {x().data(), y().data(), z().data()});
+    meta::_for<NumSupportedTypes>([&](auto i) {
+        constexpr auto type = SupportedTypes[i()];
+        if (t == type) {
+            retval = edgeLength<type>(cellNumVertices(elem), &cl()[el()[elem]], {x().data(), y().data(), z().data()});
         }
     });
     return retval;
@@ -232,13 +222,12 @@ Scalar UnstructuredGrid::cellEdgeLength(Index elem) const
 
 Scalar UnstructuredGrid::cellSurface(Index elem) const
 {
+    auto t = tl()[elem];
     Scalar retval = -1;
-    auto type = tl()[elem];
-    for_<NumSupportedTypes>([&](auto i) {
-        if (SupportedTypes[i.value] == type) {
-            retval = surface<SupportedTypes[i.value]>(cellNumVertices(elem), &cl()[el()[elem]],
-                                                      {x().data(), y().data(), z().data()});
-            return;
+    meta::_for<NumSupportedTypes>([&](auto i) {
+        constexpr auto type = SupportedTypes[i()];
+        if (t == type) {
+            retval = surface<type>(cellNumVertices(elem), &cl()[el()[elem]], {x().data(), y().data(), z().data()});
         }
     });
     return retval;
@@ -246,13 +235,12 @@ Scalar UnstructuredGrid::cellSurface(Index elem) const
 
 Scalar UnstructuredGrid::cellVolume(Index elem) const
 {
+    auto t = tl()[elem];
     Scalar retval = -1;
-    auto type = tl()[elem];
-    for_<NumSupportedTypes>([&](auto i) {
-        if (SupportedTypes[i.value] == type) {
-            retval = volume<SupportedTypes[i.value]>(cellNumVertices(elem), &cl()[el()[elem]],
-                                                     {x().data(), y().data(), z().data()});
-            return;
+    meta::_for<NumSupportedTypes>([&](auto i) {
+        constexpr auto type = SupportedTypes[i()];
+        if (t == type) {
+            retval = volume<type>(cellNumVertices(elem), &cl()[el()[elem]], {x().data(), y().data(), z().data()});
         }
     });
     return retval;
