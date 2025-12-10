@@ -159,6 +159,17 @@ bool ReadCsv::examine(const Parameter *param)
             setPartitions(std::max(m_filename->choices().size() - 1, size_t(1)));
         }
     }
+    if (m_timestepsInRows) {
+        if (m_timestepsInRows->getValue()) {
+            //TODO: update to other templates
+            std::cout << "Counting rows for timestep mode" << std::endl;
+            m_totalRows = 10; //countRowsInFile<','>(); TODO: count rows, 10 just for test of concept reasons reasons
+            setTimesteps(m_totalRows);
+        }
+        /*  } else {
+            setParallelizationMode(ParallelizationMode::ParallelizeBlocks);
+        } */
+    }
     return true;
 }
 
@@ -267,6 +278,9 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
 
     if (m_timestepsInRows->getValue()) {
         // Each row is a separate timestep with a single point
+        vistle::Points::ptr points = std::make_shared<vistle::Points>((size_t)0);
+        std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> dataObjects;
+
         CSVReader<NUM_FIELDS, Delimiter> in(getFilename(m_directory->getValue(), layer));
         std::array<const char *, NUM_FIELDS> colNames;
         for (size_t i = 0; i < NUM_FIELDS; i++) {
@@ -278,7 +292,7 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
         auto lo = layerOffset(static_cast<LayerMode>(m_layerMode->getValue()), m_layerOffset->getValue());
         size_t rowNumber = 0;
 
-        while (read_row(in, csvData)) {
+        while (read_row(in, csvData) and rowNumber < m_totalRows) {
             vistle::Points::ptr points = std::make_shared<vistle::Points>((size_t)1);
             std::array<vistle::Vec<Scalar>::ptr, NUM_DATA_FIELDS> dataObjects;
 
@@ -298,7 +312,7 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
             }
 
             points->setBlock(block);
-            points->setTimestep(static_cast<int>(rowNumber));
+            points->setTimestep(static_cast<int>(rowNumber) - 1); //-1 so that constant timestep is not empty
             token.applyMeta(points);
             token.addObject("points_out", points);
 
@@ -307,7 +321,8 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
                     dataObjects[i]->setMapping(DataBase::Vertex);
                     dataObjects[i]->setGrid(points);
                     dataObjects[i]->setBlock(block);
-                    dataObjects[i]->setTimestep(static_cast<int>(rowNumber));
+                    dataObjects[i]->setTimestep(static_cast<int>(rowNumber) -
+                                                1); //-1 so that constant timestep is not empty
                     dataObjects[i]->describe(m_choices[getDataSelection(i)], id());
                     token.applyMeta(dataObjects[i]);
                     token.addObject("data_out" + std::to_string(i), dataObjects[i]);
@@ -352,6 +367,26 @@ bool ReadCsv::readFile(Token &token, int timestep, int block)
         }
     }
     return true;
+}
+
+// count rows (excluding header) for a given file and delimiter
+template<char Delimiter>
+size_t ReadCsv::countRowsInFile()
+{
+    CSVReader<NUM_FIELDS, Delimiter> in(
+        getFilename(m_directory->getValue(), m_filename->getValue() > 0 ? m_filename->getValue() - 1 : 0));
+    std::array<const char *, NUM_FIELDS> colNames;
+    for (size_t i = 0; i < NUM_FIELDS; i++) {
+        colNames[i] = m_choices[m_selectionParams[i]->getValue()].c_str();
+    }
+    read_header(in, colNames);
+    std::array<float, NUM_FIELDS> csvData;
+    csvData.fill(0);
+    size_t rows = 0;
+    while (read_row(in, csvData)) {
+        ++rows;
+    }
+    return rows;
 }
 
 bool ReadCsv::read(Token &token, int timestep, int block)

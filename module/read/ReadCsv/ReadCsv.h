@@ -24,6 +24,8 @@ private:
     size_t readLayer(size_t layer, vistle::Points::ptr &points,
                      std::array<vistle::Vec<vistle::Scalar>::ptr, NUM_DATA_FIELDS> &dataFields);
     bool read(Token &token, int timestep = -1, int block = -1) override;
+    template<char Delimiter>
+    size_t countRowsInFile();
 
     vistle::StringParameter *m_directory = nullptr;
     vistle::IntParameter *m_filename = nullptr;
@@ -32,6 +34,7 @@ private:
     vistle::IntParameter *m_layersInOneObject = nullptr;
     vistle::IntParameter *m_timestepsInRows = nullptr;
     vistle::FloatParameter *m_layerOffset = nullptr;
+    size_t m_totalRows;
 
 
     std::array<vistle::IntParameter *, NUM_FIELDS> m_selectionParams;
