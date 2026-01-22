@@ -3,17 +3,25 @@
 
 #include <vistle/vtkm/vtkm_module.h>
 
-class SampleVtkm: public vistle::vtkm::VtkmModule {
+#include <vistle/module/module.h>
+#include <vistle/core/object.h>
+#include <vistle/core/grid.h>
+#include <vistle/core/uniformgrid.h>
+#include <vistle/core/structuredgrid.h>
+#include <vistle/core/rectilineargrid.h>
+#include <vistle/core/unstr.h>
+
+class SampleVtkm: public vistle::VtkmModule {
 public:
     SampleVtkm(const std::string &name, int moduleID, mpi::communicator comm, int numPorts = 1,
-               bool requireMappedData = true);
+               bool requireMappedData = false);
 
 private:
     ModuleStatusPtr prepareInputField(const vistle::Port *port, const vistle::Object::const_ptr &grid,
                                       const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                       viskores::cont::DataSet &dataset) const override;
 
-    std::unique_ptr<vtkm::filter::Filter> setUpFilter() const override;
+    std::unique_ptr<viskores::filter::Filter> setUpFilter() const override;
 
     vistle::Object::const_ptr prepareOutputGrid(const viskores::cont::DataSet &dataset,
                                                 const vistle::Object::const_ptr &inputGrid) const override;
