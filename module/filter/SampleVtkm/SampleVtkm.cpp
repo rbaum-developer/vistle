@@ -1,6 +1,7 @@
 //#include <viskores/include/viskores/filter/resampling/viskores_filter_resampling_export.h>
 #include <viskores/filter/resampling/Probe.h>
 #include <vistle/core/object.h>
+#include <vistle/vtkm/convert.h>
 
 #include "SampleVtkm.h"
 
@@ -22,15 +23,14 @@ SampleVtkm::SampleVtkm(
     bool requireMappedData) //TODO: numPorts 2 input and 1 output ports - just one input port needs mapped data
 : VtkmModule(name, moduleID, comm)
 {
-    createInputPort("data_in", "object with data to be sampled"); // TODO: input of the Execute function
-    createInputPort("ref_in", "target grid", Port::Flags::NOCOMPUTE); // TODO: Use get geometry to set as target drif
+    createInputPort("ref_in", "target grid", Port::Flags::NOCOMPUTE);
 
     m_out = createOutputPort("data_out", "data sampled to target grid");
 
     m_mode = addIntParameter("mode", "interpolation mode", Linear, Parameter::Choice);
     m_createCelltree = addIntParameter("create_celltree", "create celltree", 0, Parameter::Boolean);
     m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", Linear,
-                                   Parameter::Choice); //<todo: use SetInvalidValue of the Probe filter to specify this
+                                   Parameter::Choice);
     m_userDef = addFloatParameter("user_defined_value", "user defined value if target outside source domain", 1.0);
     m_hits = addIntParameter("mulit_hits", "handling if multiple interpolatied values found for one target point ",
                              Linear, Parameter::Choice);
@@ -43,9 +43,8 @@ SampleVtkm::SampleVtkm(
 std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
 {
     auto filter = std::make_unique<viskores::filter::resampling::Probe>();
-    // TODO: check if mapped data exists in second input port
-    // TODO: set up the target geometry for the Probe filter:
-    //filter->SetGeometry(ref_in->getObject()->getInterface<viskores::cont::DataSet>());
+    // set up the target geometry for the Probe filter:
+    filter->SetGeometry(m_ref_in);
     filter->SetInvalidValue(m_valOutside->getValue());
     return filter;
 }
@@ -54,12 +53,15 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
                                               const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                               viskores::cont::DataSet &dataset) const
 {
-    // Implement any specific input field preparation if needed
-    return VtkmModule::prepareInputField(port, grid, field, fieldName, dataset);
-}
-
-vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
-                                                        const vistle::Object::const_ptr &inputGrid) const
+    if (port->getName() == "ref_in") {
+            // TODO: check if mapped data exists in second input port
+        auto object = port->objects().back();
+        // convert to viskores data set
+        viskores::cont::DataSet ref_in;
+        ModuleStatusPtr status = vtkmSetGrid(ref_in, object);
+        if (!status) {
+            sendError("Failed to set grid in dataset"); 
+        }                 const vistle::Object::const_ptr &inputGrid) const
 {
     // Implement output grid preparation if needed
     return nullptr;
