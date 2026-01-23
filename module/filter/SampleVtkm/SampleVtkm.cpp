@@ -9,14 +9,7 @@ using namespace vistle;
 
 MODULE_MAIN(SampleVtkm)
 
-DEFINE_ENUM_WITH_STRING_CONVERSIONS(InterpolationMode,
-                                    (First) // value of first vertex
-                                    (Mean) // mean value of all vertices
-                                    (Nearest) // value of nearest vertex
-                                    (Linear) // barycentric/multilinear interpolation
-)
 DEFINE_ENUM_WITH_STRING_CONVERSIONS(ValueOutside, (NaN)(Zero)(userDefined))
-DEFINE_ENUM_WITH_STRING_CONVERSIONS(MultiHits, (Any)(Average))
 
 SampleVtkm::SampleVtkm(
     const std::string &name, int moduleID, mpi::communicator comm, int numPorts,
@@ -25,19 +18,11 @@ SampleVtkm::SampleVtkm(
 {
     createInputPort("ref_in", "target grid", Port::Flags::NOCOMPUTE);
 
-    m_out = createOutputPort("data_out", "data sampled to target grid");
-
-    m_mode = addIntParameter("mode", "interpolation mode", Linear, Parameter::Choice);
-    m_createCelltree = addIntParameter("create_celltree", "create celltree", 0, Parameter::Boolean);
-    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", Linear,
+    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", NaN,
                                    Parameter::Choice);
     m_userDef = addFloatParameter("user_defined_value", "user defined value if target outside source domain", 1.0);
-    m_hits = addIntParameter("mulit_hits", "handling if multiple interpolatied values found for one target point ",
-                             Linear, Parameter::Choice);
 
-    V_ENUM_SET_CHOICES_SCOPE(m_mode, InterpolationMode, );
     V_ENUM_SET_CHOICES_SCOPE(m_valOutside, ValueOutside, );
-    V_ENUM_SET_CHOICES_SCOPE(m_hits, MultiHits, );
 }
 
 std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
@@ -45,7 +30,10 @@ std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
     auto filter = std::make_unique<viskores::filter::resampling::Probe>();
     // set up the target geometry for the Probe filter:
     filter->SetGeometry(m_ref_in);
-    filter->SetInvalidValue(m_valOutside->getValue());
+
+    // set up handling of values outside the input domain:
+    float valOut = getInvalidValue();
+    filter->SetInvalidValue(valOut);
     return filter;
 }
 
@@ -54,16 +42,26 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
                                               viskores::cont::DataSet &dataset) const
 {
     if (port->getName() == "ref_in") {
-            // TODO: check if mapped data exists in second input port
         auto object = port->objects().back();
-        // convert to viskores data set
-        viskores::cont::DataSet ref_in;
-        ModuleStatusPtr status = vtkmSetGrid(ref_in, object);
-        if (!status) {
-            sendError("Failed to set grid in dataset"); 
-        }                 const vistle::Object::const_ptr &inputGrid) const
-{
+        auto split = splitContainerObject(object);
+        auto coords = Coords::as(split.geometry);
+        if (object->getTimestep() < 1 and coords) {
+            // convert to viskores data set
+            ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, coords);
+            if (!status) {
+                sendError("Failed to set grid in dataset");
+            }
+        } else {
+            sendError("No valid grid object received on ref_in port");
+        }
+    }
     // Implement output grid preparation if needed
+    return nullptr;
+}
+
+vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
+                                                        const vistle::Object::const_ptr &inputGrid) const
+{
     return nullptr;
 }
 
@@ -75,4 +73,20 @@ vistle::DataBase::ptr SampleVtkm::prepareOutputField(const viskores::cont::DataS
 {
     // Implement output field preparation if needed
     return nullptr;
+}
+
+float SampleVtkm::getInvalidValue() const
+{
+    if (m_valOutside->getValue() == NaN) {
+        return NAN;
+    }
+    if (m_valOutside->getValue() == Zero) {
+        return 0.0f;
+    }
+    if (m_valOutside->getValue() == userDefined) {
+        const float v = static_cast<float>(m_userDef->getValue());
+        if (v)
+            return v;
+    }
+    return 0.0f;
 }

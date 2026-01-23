@@ -31,12 +31,12 @@ private:
                                              const vistle::DataBase::const_ptr &inputField,
                                              const std::string &fieldName,
                                              const vistle::Object::const_ptr &outputGrid) const override;
+    float getInvalidValue() const;
 
-    vistle::IntParameter *m_mode, *m_valOutside, *m_hits;
-    vistle::GridInterface::InterpolationMode mode;
-    vistle::Port *m_out = nullptr;
-    vistle::IntParameter *m_createCelltree;
+    vistle::IntParameter *m_valOutside;
     vistle::FloatParameter *m_userDef;
+
+    mutable viskores::cont::DataSet m_ref_in;
 
     bool m_useCelltree = false;
 };

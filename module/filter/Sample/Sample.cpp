@@ -26,7 +26,7 @@ Sample::Sample(const std::string &name, int moduleID, mpi::communicator comm): M
 
     m_mode = addIntParameter("mode", "interpolation mode", Linear, Parameter::Choice);
     m_createCelltree = addIntParameter("create_celltree", "create celltree", 0, Parameter::Boolean);
-    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", Linear,
+    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", NaN,
                                    Parameter::Choice);
     m_userDef = addFloatParameter("user_defined_value", "user defined value if target outside source domain", 1.0);
     m_hits = addIntParameter("mulit_hits", "handling if multiple interpolatied values found for one target point ",
