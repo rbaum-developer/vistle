@@ -42,7 +42,15 @@ bool SampleVtkm::objectAdded(int sender, const std::string &senderPort, const Po
     if (port->getName() == "ref_in") {
         std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
         auto object = port->objects().back();
-        auto split = splitContainerObject(object);
+        if(object == nullptr){
+            std::cout << "object in ref_in is a nullpointer" << std::endl;
+        }
+        //TODO: get coordinate grid out of object
+        const GeometryInterface *geo = object->getInterface<GeometryInterface>();
+        /* auto split = splitContainerObject(object);
+        if(split.geometry == nullptr){
+            std::cout << "split container is not possible" << std::endl;
+        } //NOT POSSIBLE WITH ALL GRIDS*/
         auto coords = Coords::as(split.geometry);
         if (object->getTimestep() < 1 and coords) {
             // convert to viskores data set
@@ -60,21 +68,6 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
                                               const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                               viskores::cont::DataSet &dataset) const
 {
- /*         if (port->getName() == "ref_in") {
-        std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
-        auto object = port->objects().back();
-        auto split = splitContainerObject(object);
-        auto coords = Coords::as(split.geometry);
-        if (object->getTimestep() < 1 and coords) {
-            // convert to viskores data set
-            ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, coords);
-            if (!status) {
-                return Error("Failed to set grid in dataset");
-            }
-        } else {
-            return Error("No valid grid object received on ref_in port");
-        }
-    }  */
     return Success();
 }
 
