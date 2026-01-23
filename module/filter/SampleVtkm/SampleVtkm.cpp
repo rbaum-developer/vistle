@@ -49,14 +49,13 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
             // convert to viskores data set
             ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, coords);
             if (!status) {
-                sendError("Failed to set grid in dataset");
+                return Error("Failed to set grid in dataset");
             }
         } else {
-            sendError("No valid grid object received on ref_in port");
+            return Error("No valid grid object received on ref_in port");
         }
     }
-    // Implement output grid preparation if needed
-    return nullptr;
+    return Success();
 }
 
 vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
