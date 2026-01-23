@@ -36,7 +36,7 @@ std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
     filter->SetInvalidValue(valOut);
     return filter;
 }
-/* 
+
 bool SampleVtkm::objectAdded(int sender, const std::string &senderPort, const Port *port)
 {
     if (port->getName() == "ref_in") {
@@ -55,12 +55,12 @@ bool SampleVtkm::objectAdded(int sender, const std::string &senderPort, const Po
         }
     }
 }
- */
+
 ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vistle::Object::const_ptr &grid,
                                               const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                               viskores::cont::DataSet &dataset) const
 {
-         if (port->getName() == "ref_in") {
+ /*         if (port->getName() == "ref_in") {
         std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
         auto object = port->objects().back();
         auto split = splitContainerObject(object);
@@ -74,7 +74,7 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
         } else {
             return Error("No valid grid object received on ref_in port");
         }
-    } 
+    }  */
     return Success();
 }
 

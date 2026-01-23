@@ -33,7 +33,7 @@ private:
                                              const vistle::Object::const_ptr &outputGrid) const override;
   */   float getInvalidValue() const;
 
-  //  bool objectAdded(int sender, const std::string &senderPort, const vistle::Port *port) override;
+    bool objectAdded(int sender, const std::string &senderPort, const vistle::Port *port) override;
 
     vistle::IntParameter *m_valOutside;
     vistle::FloatParameter *m_userDef;
