@@ -18,8 +18,8 @@ SampleVtkm::SampleVtkm(
 {
     createInputPort("ref_in", "target grid", Port::Flags::NOCOMPUTE);
 
-    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", NaN,
-                                   Parameter::Choice);
+    m_valOutside =
+        addIntParameter("value_outside", "value to be used if target is outside source domain", NaN, Parameter::Choice);
     m_userDef = addFloatParameter("user_defined_value", "user defined value if target outside source domain", 1.0);
 
     V_ENUM_SET_CHOICES_SCOPE(m_valOutside, ValueOutside, );
@@ -36,12 +36,32 @@ std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
     filter->SetInvalidValue(valOut);
     return filter;
 }
-
+/* 
+bool SampleVtkm::objectAdded(int sender, const std::string &senderPort, const Port *port)
+{
+    if (port->getName() == "ref_in") {
+        std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
+        auto object = port->objects().back();
+        auto split = splitContainerObject(object);
+        auto coords = Coords::as(split.geometry);
+        if (object->getTimestep() < 1 and coords) {
+            // convert to viskores data set
+            ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, coords);
+            if (!status) {
+                sendError("Failed to set grid in dataset");
+            }
+        } else {
+            sendError("No valid grid object received on ref_in port");
+        }
+    }
+}
+ */
 ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vistle::Object::const_ptr &grid,
                                               const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                               viskores::cont::DataSet &dataset) const
 {
-    if (port->getName() == "ref_in") {
+         if (port->getName() == "ref_in") {
+        std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
         auto object = port->objects().back();
         auto split = splitContainerObject(object);
         auto coords = Coords::as(split.geometry);
@@ -54,11 +74,11 @@ ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vi
         } else {
             return Error("No valid grid object received on ref_in port");
         }
-    }
+    } 
     return Success();
 }
 
-vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
+/* vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
                                                         const vistle::Object::const_ptr &inputGrid) const
 {
     return nullptr;
@@ -73,7 +93,7 @@ vistle::DataBase::ptr SampleVtkm::prepareOutputField(const viskores::cont::DataS
     // Implement output field preparation if needed
     return nullptr;
 }
-
+ */
 float SampleVtkm::getInvalidValue() const
 {
     if (m_valOutside->getValue() == NaN) {
