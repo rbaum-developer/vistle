@@ -22,7 +22,7 @@ private:
                                       viskores::cont::DataSet &dataset) const override;
 
     std::unique_ptr<viskores::filter::Filter> setUpFilter() const override;
-/* 
+    /* 
     vistle::Object::const_ptr prepareOutputGrid(const viskores::cont::DataSet &dataset,
                                                 const vistle::Object::const_ptr &inputGrid) const override;
 
@@ -31,7 +31,8 @@ private:
                                              const vistle::DataBase::const_ptr &inputField,
                                              const std::string &fieldName,
                                              const vistle::Object::const_ptr &outputGrid) const override;
-  */   float getInvalidValue() const;
+  */
+    float getInvalidValue() const;
 
     bool objectAdded(int sender, const std::string &senderPort, const vistle::Port *port) override;
 
@@ -39,6 +40,7 @@ private:
     vistle::FloatParameter *m_userDef;
 
     mutable viskores::cont::DataSet m_ref_in;
+    bool m_refValid = false;
 
     bool m_useCelltree = false;
 };

@@ -28,10 +28,19 @@ SampleVtkm::SampleVtkm(
 std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
 {
     auto filter = std::make_unique<viskores::filter::resampling::Probe>();
-    // set up the target geometry for the Probe filter:
-    filter->SetGeometry(m_ref_in);
+    
+    if (!m_refValid) {
+        sendError("SampleVtkm::setUpFilter: No valid reference geometry set");
+        return nullptr;  // Return nullptr instead of an unconfigured filter
+    }
+    
+    if (m_ref_in.GetNumberOfCoordinateSystems() > 0) {
+        filter->SetGeometry(m_ref_in);
+    } else {
+        sendError("SampleVtkm::setUpFilter: Reference dataset has no coordinate system");
+        return nullptr;
+    }
 
-    // set up handling of values outside the input domain:
     float valOut = getInvalidValue();
     filter->SetInvalidValue(valOut);
     return filter;
@@ -40,35 +49,74 @@ std::unique_ptr<viskores::filter::Filter> SampleVtkm::setUpFilter() const
 bool SampleVtkm::objectAdded(int sender, const std::string &senderPort, const Port *port)
 {
     if (port->getName() == "ref_in") {
-        std::cout << "SampleVtkm: preparing reference grid from port " << port->getName() << std::endl;
-        auto object = port->objects().back();
-        if(object == nullptr){
-            std::cout << "object in ref_in is a nullpointer" << std::endl;
+        m_ref_in = viskores::cont::DataSet{};
+        m_refValid = false;
+
+        if (port->objects().empty()) {
+            sendError("No object on ref_in port");
+            return true;
         }
-        //TODO: get coordinate grid out of object
-        const GeometryInterface *geo = object->getInterface<GeometryInterface>();
-        /* auto split = splitContainerObject(object);
-        if(split.geometry == nullptr){
-            std::cout << "split container is not possible" << std::endl;
-        } //NOT POSSIBLE WITH ALL GRIDS*/
-        auto coords = Coords::as(split.geometry);
-        if (object->getTimestep() < 1 and coords) {
-            // convert to viskores data set
-            ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, coords);
-            if (!status) {
-                sendError("Failed to set grid in dataset");
+        
+        auto object = port->objects().back();
+        if (!object) {
+            sendError("Invalid object on ref_in port");
+            return true;
+        }
+        
+        if (object->getTimestep() < 1) {
+            // Try to get it as a GeometryInterface directly (like a Coords object)
+            const GeometryInterface *geo = object->getInterface<GeometryInterface>();
+            if (geo) {
+                ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, object);
+                if (status) {
+                    m_refValid = m_ref_in.GetNumberOfCoordinateSystems() > 0;
+                    if (m_refValid) {
+                        // Check cell set type
+                        auto cellSet = m_ref_in.GetCellSet();
+                        if (cellSet.IsType<viskores::cont::CellSetSingleType<>>()) {
+                            auto singleType = cellSet.AsCellSet<viskores::cont::CellSetSingleType<>>();
+                            if (singleType.GetCellShapeAsId() == 1) { // VTK_VERTEX
+                                sendError("Reference grid contains vertex cells which are not supported by Probe filter");
+                                m_refValid = false;
+                            }
+                        }
+                    }
+                    if (!m_refValid && m_ref_in.GetNumberOfCoordinateSystems() > 0)
+                        sendError("Reference grid has no coordinate system or unsupported cell type");
+                } else {
+                    sendError("Failed to convert grid to viskores format");
+                }
+            } else {
+                // Try to extract grid from DataBase wrapper
+                DataBase::const_ptr data = DataBase::as(object);
+                if (data && data->grid()) {
+                    ModuleStatusPtr status = vistle::vtkmSetGrid(m_ref_in, data->grid());
+                    if (status) {
+                        m_refValid = m_ref_in.GetNumberOfCoordinateSystems() > 0;
+                        if (!m_refValid)
+                            sendError("Reference grid has no coordinate system");
+                    } else {
+                        sendError("Failed to convert grid to viskores format");
+                    }
+                } else {
+                    sendError("Could not extract grid from object on ref_in port");
+                }
             }
-        } else {
-            sendError("No valid grid object received on ref_in port");
         }
     }
+    return true;
 }
 
 ModuleStatusPtr SampleVtkm::prepareInputField(const vistle::Port *port, const vistle::Object::const_ptr &grid,
                                               const vistle::DataBase::const_ptr &field, std::string &fieldName,
                                               viskores::cont::DataSet &dataset) const
 {
-    return Success();
+    // Test why field is not valid:
+    if (!field) {
+        sendError("Input field is null");
+        return Error("Input field is null");
+    }
+    return VtkmModule::prepareInputField(port, grid, field, fieldName, dataset);
 }
 
 /* vistle::Object::const_ptr SampleVtkm::prepareOutputGrid(const viskores::cont::DataSet &dataset,
