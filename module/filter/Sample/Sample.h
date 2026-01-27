@@ -22,8 +22,9 @@ private:
     bool objectAdded(int sender, const std::string &senderPort, const vistle::Port *port) override;
     bool changeParameter(const vistle::Parameter *p) override;
 
-    int SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData,
+    int SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData, const vistle::Object::const_ptr targetObj,
                      vistle::DataBase::ptr &sampled);
+    float getInvalidValue() const;
 
     vistle::IntParameter *m_mode, *m_valOutside, *m_hits;
     vistle::GridInterface::InterpolationMode mode;

@@ -1,6 +1,13 @@
 #include "Sample.h"
 #include <vistle/core/object.h>
 
+#ifdef SAMPLEVTKM
+#include <viskores/cont/DataSet.h>
+#include <viskores/filter/resampling/Probe.h>
+
+#include <vistle/vtkm/convert.h>
+#endif
+
 using namespace vistle;
 
 MODULE_MAIN(Sample)
@@ -26,8 +33,8 @@ Sample::Sample(const std::string &name, int moduleID, mpi::communicator comm): M
 
     m_mode = addIntParameter("mode", "interpolation mode", Linear, Parameter::Choice);
     m_createCelltree = addIntParameter("create_celltree", "create celltree", 0, Parameter::Boolean);
-    m_valOutside = addIntParameter("value_outside", "value to be used if target is outside source domain", NaN,
-                                   Parameter::Choice);
+    m_valOutside =
+        addIntParameter("value_outside", "value to be used if target is outside source domain", NaN, Parameter::Choice);
     m_userDef = addFloatParameter("user_defined_value", "user defined value if target outside source domain", 1.0);
     m_hits = addIntParameter("mulit_hits", "handling if multiple interpolatied values found for one target point ",
                              Linear, Parameter::Choice);
@@ -36,7 +43,7 @@ Sample::Sample(const std::string &name, int moduleID, mpi::communicator comm): M
     V_ENUM_SET_CHOICES(m_hits, MultiHits);
 }
 
-int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData,
+int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData, const vistle::Object::const_ptr targetObj,
                          vistle::DataBase::ptr &sampled)
 {
     int found = 0;
@@ -51,7 +58,47 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
         std::cerr << "no scalar data received" << std::endl;
         return found;
     }
+#ifdef SAMPLEVTKM
+    viskores::filter::resampling::Probe filter;
 
+    // Set up target geometry
+    viskores::cont::DataSet refVTKMs;
+    vistle::vtkmSetGrid(refVTKMs, targetObj); //TODO: get object of target
+    filter.SetGeometry(refVTKMs);
+    filter.SetInvalidValue(getInvalidValue());
+
+    // Set up source data and field
+    viskores::cont::DataSet inVTKMs;
+    vistle::vtkmSetGrid(inVTKMs, inData->grid());
+    std::string fieldName = "data_in";
+    vistle::vtkmAddField(inVTKMs, inData, fieldName);
+    filter.SetActiveField(fieldName);
+
+    // Execute filter
+    auto outVTKMs = filter.Execute(inVTKMs);
+
+    // Convert output grid back to Vistle
+    vistle::Object::const_ptr outGrid = vistle::vtkmGetGeometry(outVTKMs);
+    if (!outGrid) {
+        sendError("Failed to extract output grid from VTK-m result");
+        return found;
+    }
+
+    // Convert output field back to Vistle
+    std::string outFieldName = fieldName; // or the filter's output field name
+    sampled = vistle::vtkmGetField(outVTKMs, outFieldName);
+    if (!sampled) {
+        sendError("Failed to extract output field %s from VTK-m result", outFieldName.c_str());
+        return found;
+    }
+    else{
+        sampled->setGrid(outGrid);
+        found = 1;
+    }
+
+//outGrid = vistle::vtkmGetGeometry(outVTKM); // convert back to vistle dataout
+//sampled= ?
+#else
     const Scalar *data = scal->x().data();
 
     Index numVert = target->getNumVertices();
@@ -72,6 +119,7 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
         }
     }
     sampled = DataBase::as(Object::ptr(dataOut));
+#endif
 
     return found;
 }
@@ -80,13 +128,8 @@ bool Sample::reduce(int timestep)
 {
     mode = (GridInterface::InterpolationMode)m_mode->getValue();
 
-    float valOut = 0.0;
-    if (m_valOutside->getValue() == NaN) {
-        valOut = NAN;
-    } else if (m_valOutside->getValue() == userDefined) {
-        if (m_userDef->getValue())
-            valOut = m_userDef->getValue();
-    }
+    float valOut = getInvalidValue();
+
     if (m_createCelltree->getValue())
         m_useCelltree = true;
     int nProcs = 1;
@@ -123,7 +166,7 @@ bool Sample::reduce(int timestep)
                         continue;
                     int foundSample = 0;
                     if (geo)
-                        foundSample += SampleToGrid(geo, data, sampledData);
+                        foundSample += SampleToGrid(geo, data, objAtIdx, sampledData);
 
                     if (foundSample > 0)
                         sampledDataList.push_back(sampledData);
@@ -287,4 +330,20 @@ bool Sample::objectAdded(int sender, const std::string &senderPort, const Port *
 bool Sample::changeParameter(const Parameter *p)
 {
     return true;
+}
+
+float Sample::getInvalidValue() const
+{
+    if (m_valOutside->getValue() == NaN) {
+        return NAN;
+    }
+    if (m_valOutside->getValue() == Zero) {
+        return 0.0f;
+    }
+    if (m_valOutside->getValue() == userDefined) {
+        const float v = static_cast<float>(m_userDef->getValue());
+        if (v)
+            return v;
+    }
+    return 0.0f;
 }
