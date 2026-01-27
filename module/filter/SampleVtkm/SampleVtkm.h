@@ -39,6 +39,7 @@ private:
     vistle::IntParameter *m_valOutside;
     vistle::FloatParameter *m_userDef;
 
+    mutable std::mutex m_refMutex;
     mutable viskores::cont::DataSet m_ref_in;
     bool m_refValid = false;
 
