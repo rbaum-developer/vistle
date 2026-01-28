@@ -43,8 +43,8 @@ Sample::Sample(const std::string &name, int moduleID, mpi::communicator comm): M
     V_ENUM_SET_CHOICES(m_hits, MultiHits);
 }
 
-int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData, const vistle::Object::const_ptr targetObj,
-                         vistle::DataBase::ptr &sampled)
+int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBase::const_ptr inData,
+                         const vistle::Object::const_ptr targetObj, vistle::DataBase::ptr &sampled)
 {
     int found = 0;
     auto inObj = inData->grid();
@@ -74,6 +74,13 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
     vistle::vtkmAddField(inVTKMs, inData, fieldName);
     filter.SetActiveField(fieldName);
 
+    std::string activeFieldName = filter.GetActiveFieldName();
+    std::cout << "Rank " << rank() << " executing filter" << std::endl;
+    std::cout << "Active field name: " << activeFieldName << std::endl;
+
+    if (inVTKMs.GetNumberOfFields() == 0) {
+        std::cerr << "Dataset has no fields" << std::endl;
+    }
     // Execute filter
     auto outVTKMs = filter.Execute(inVTKMs);
 
@@ -90,10 +97,17 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
     if (!sampled) {
         sendError("Failed to extract output field %s from VTK-m result", outFieldName.c_str());
         return found;
-    }
-    else{
+    } else {
         sampled->setGrid(outGrid);
         found = 1;
+    }
+
+    std::cout << "Output dataset has " << outVTKMs.GetNumberOfFields() << " fields" << std::endl;
+    outVTKMs.PrintSummary(std::cout);
+
+    for (int i = 0; i < outVTKMs.GetNumberOfFields(); ++i) {
+        auto field = outVTKMs.GetField(i);
+        std::cout << "Field " << i << ": " << field.GetName() << std::endl;
     }
 
 //outGrid = vistle::vtkmGetGeometry(outVTKM); // convert back to vistle dataout
@@ -115,7 +129,7 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
             ptrOnData[i] = p;
             found = 1;
         } else {
-            ptrOnData[i] = NO_VALUE;
+            ptrOnData[i] = getInvalidValue();
         }
     }
     sampled = DataBase::as(Object::ptr(dataOut));
@@ -173,6 +187,7 @@ bool Sample::reduce(int timestep)
                     found += foundSample;
                 }
             }
+            std::cout << "Rank " << rank() << " found " << found << " samples for timestep " << timestep << std::endl;
 
             mpi::gather(comm(), found, foundList, r);
 
@@ -271,6 +286,7 @@ bool Sample::reduce(int timestep)
 
 bool Sample::compute(const std::shared_ptr<vistle::BlockTask> &task) const
 {
+    #ifndef SAMPLEVTKM
     if (m_createCelltree->getValue()) {
         Object::const_ptr obj = task->expect<Object>("data_in");
         if (!obj)
@@ -297,6 +313,7 @@ bool Sample::compute(const std::shared_ptr<vistle::BlockTask> &task) const
             sendInfo("Source grid type not supported");
         }
     }
+    #endif
     return true;
 }
 
