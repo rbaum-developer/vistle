@@ -302,8 +302,16 @@ struct ComputeOutput {
     Scalar t; \
     Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
     if (std::isnan(f1) || std::isnan(f2)) { \
-        /* Skip this edge - don't output anything */ \
-        (void)outvertexindex; /* suppress unused warning */ \
+        for (int j = nc; j < m_data.m_numInVertData; j++) { \
+            m_data.m_outVertPtr[j][outvertexindex] = std::numeric_limits<Scalar>::quiet_NaN(); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
+            m_data.m_outVertPtrI[j][outvertexindex] = 0; \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
+            m_data.m_outVertPtrB[j][outvertexindex] = 0; \
+        } \
+        t = std::numeric_limits<Scalar>::quiet_NaN(); \
     } else { \
         t = interpolation_weight<Scalar>(f1, f2, m_data.m_isovalue); \
         for (int j = nc; j < m_data.m_numInVertData; j++) { \
@@ -489,13 +497,21 @@ struct ComputeOutput {
     const unsigned int v2 = edgeTable[1][edge]; \
     const Scalar f1 = field[v1]; \
     const Scalar f2 = field[v2]; \
-    Scalar t; \
-    Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
+    /* Skip interpolation if either field value is NaN */ \
     if (std::isnan(f1) || std::isnan(f2)) { \
-        /* Skip this edge - don't output anything */ \
-        (void)outvertexindex; /* suppress unused warning */ \
+        Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
+        for (int j = nc; j < m_data.m_numInVertData; j++) { \
+            m_data.m_outVertPtr[j][outvertexindex] = std::numeric_limits<Scalar>::quiet_NaN(); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
+            m_data.m_outVertPtrI[j][outvertexindex] = 0; \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
+            m_data.m_outVertPtrB[j][outvertexindex] = 0; \
+        } \
     } else { \
-        t = interpolation_weight<Scalar>(f1, f2, m_data.m_isovalue); \
+        const Scalar t = interpolation_weight<Scalar>(f1, f2, m_data.m_isovalue); \
+        Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
         for (int j = nc; j < m_data.m_numInVertData; j++) { \
             m_data.m_outVertPtr[j][outvertexindex] = \
                 lerp(m_data.m_inVertPtr[j][base + v1], m_data.m_inVertPtr[j][base + v2], t); \
@@ -673,6 +689,9 @@ struct SelectCells {
         // also for POLYHEDRON
         for (Index i = Cell; i < nextCell; i++) {
             Scalar val = m_data.m_isoFunc(m_data.m_cl[i]);
+            // Skip cells with NaN values
+            if (std::isnan(val))
+                return 0;
             if (val > m_data.m_isovalue) {
                 havelower = 1;
                 if (havehigher)
@@ -694,6 +713,9 @@ struct SelectCells {
         int havehigher = 0;
         for (int i = 0; i < 8; ++i) {
             Scalar val = m_data.m_isoFunc(verts[i]);
+            // Skip cells with NaN values
+            if (std::isnan(val))
+                return 0;
             if (val > m_data.m_isovalue) {
                 havelower = 1;
                 if (havehigher)
@@ -722,6 +744,9 @@ struct SelectCells2D {
         Index nextCell = thrust::get<1>(iCell);
         for (Index i = Cell; i < nextCell; i++) {
             Scalar val = m_data.m_isoFunc(m_data.m_cl[i]);
+            // Skip cells with NaN values
+            if (std::isnan(val))
+                return 0;
             if (val > m_data.m_isovalue) {
                 havelower = 1;
                 if (havehigher)
@@ -744,6 +769,9 @@ struct SelectCells2D {
         if (m_data.m_cl) {
             for (Index i = begin; i < end; ++i) {
                 Scalar val = m_data.m_isoFunc(m_data.m_cl[i]);
+                // Skip cells with NaN values
+                if (std::isnan(val))
+                    return 0;
                 if (val > m_data.m_isovalue) {
                     havelower = 1;
                     if (havehigher)
@@ -757,6 +785,9 @@ struct SelectCells2D {
         } else {
             for (Index i = begin; i < end; ++i) {
                 Scalar val = m_data.m_isoFunc(i);
+                // Skip cells with NaN values
+                if (std::isnan(val))
+                    return 0;
                 if (val > m_data.m_isovalue) {
                     havelower = 1;
                     if (havehigher)
