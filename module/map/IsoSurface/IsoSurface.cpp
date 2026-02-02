@@ -159,8 +159,8 @@ bool IsoSurface::prepare()
 {
     m_blocksForTime.clear();
 
-    m_min = std::numeric_limits<Scalar>::max();
-    m_max = -std::numeric_limits<Scalar>::max();
+    m_min = std::numeric_limits<Scalar>::min();
+    m_max = std::numeric_limits<Scalar>::max();
 
     m_performedPointSearch = false;
     m_foundPoint = false;
@@ -437,6 +437,21 @@ bool IsoSurface::compute(const std::shared_ptr<BlockTask> &task) const
 #else
     if (m_pointOrValue->getValue() == Value) {
         auto results = work(grid, dataS, mapdataVec, m_isovalue->getValue());
+
+        // Get the mapped data (first result)
+        if (!results.empty() && results[0]) {
+            if (auto scalarData = Vec<Scalar>::as(results[0])) {
+                const Scalar *values = scalarData->x().data();
+                size_t numValues = scalarData->getSize();
+
+                // Access individual values
+                for (size_t i = 0; i < numValues; ++i) {
+                    Scalar val = values[i];
+                    std::cout << "Value " << i << ": " << val << std::endl;
+                }
+            }
+        }
+
         for (unsigned i = 0; i < results.size() && i < NumPorts; ++i) {
             const auto &obj = results[i];
             task->addObject(m_dataOut[i], obj);

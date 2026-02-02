@@ -378,13 +378,24 @@ void updateMinMax(typename V::const_ptr &v, Scalar &min, Scalar &max)
 
 std::pair<vistle::Scalar, vistle::Scalar> Color::getMinMax(vistle::DataBase::const_ptr object) const
 {
-    auto min = std::numeric_limits<Scalar>::max(), max = -std::numeric_limits<Scalar>::max();
+    auto min = std::numeric_limits<Scalar>::max(), max = std::numeric_limits<Scalar>::min();
 
     if (Vec<Byte>::const_ptr scal = Vec<Byte>::as(object)) {
         updateMinMax<Vec<Byte>>(scal, min, max);
     } else if (Vec<Index>::const_ptr scal = Vec<Index>::as(object)) {
         updateMinMax<Vec<Index>>(scal, min, max);
     } else if (Vec<Scalar>::const_ptr scal = Vec<Scalar>::as(object)) {
+        const vistle::Scalar *x = scal->x().data();
+                // Test if every value is 0.5
+        bool allHalf = true;
+        for (size_t i = 0; i < scal->getSize(); ++i) {
+            if (std::abs(x[i] - 0.5f) > 1e-6) {
+                allHalf = false;
+                break;
+            }
+        }
+        std::cout << "All Scalar values are 0.5? " << (allHalf ? "YES" : "NO") << std::endl;
+        
         updateMinMax<Vec<Scalar>>(scal, min, max);
     } else if (Vec<Scalar, 3>::const_ptr vec = Vec<Scalar, 3>::as(object)) {
         const vistle::Scalar *x = vec->x().data();
@@ -393,38 +404,8 @@ std::pair<vistle::Scalar, vistle::Scalar> Color::getMinMax(vistle::DataBase::con
 
         const auto numElements = object->getSize();
         auto abs2 = [x, y, z](Index i) {
-            //return Vector3(x[i], y[i], z[i]).squaredNorm();
             return x[i] * x[i] + y[i] * y[i] + z[i] * z[i];
         };
-#if 0
-        class It: public std::iterator<std::forward_iterator_tag, Index> {
-            Index i;
-            const vistle::Scalar *x, *y, *z;
-
-        public:
-            It(Index idx, const Scalar *x, const Scalar *y, const Scalar *z): i(idx), x(x), y(y), z(z) {}
-            It &operator=(const It &other)
-            {
-                i = other.i;
-                return *this;
-            }
-            Scalar operator*() const
-            {
-                return abs2(i);
-            }
-            It &operator++()
-            {
-                ++i;
-                return *this;
-            }
-
-            bool operator==(const It &other) const { return i == other.i; }
-        };
-
-        auto mm = std::minmax_element(It{Index{0}, x, y, z}, It{numElements, x, y, z});
-        min = std::sqrt(*mm.first);
-        max = std::sqrt(*mm.second);
-#else
         if (numElements > 0) {
             min = max = Vector3(x[0], y[0], z[0]).squaredNorm();
             for (Index i = 0; i < numElements; ++i) {
@@ -437,7 +418,6 @@ std::pair<vistle::Scalar, vistle::Scalar> Color::getMinMax(vistle::DataBase::con
             min = std::sqrt(min);
             max = std::sqrt(max);
         }
-#endif
     }
 
     return {min, max};
@@ -725,7 +705,7 @@ bool Color::prepare()
         m_sourceId = message::Id::Invalid;
 
         m_dataMin = std::numeric_limits<Scalar>::max();
-        m_dataMax = -std::numeric_limits<Scalar>::max();
+        m_dataMax = std::numeric_limits<Scalar>::min();
         m_dataRangeValid = false;
 
         if (!m_autoRange) {
@@ -773,6 +753,7 @@ bool Color::compute()
 
     if (m_autoRange || m_constrain->getValue() || (m_nest && m_autoInsetCenter)) {
         auto [min, max] = getMinMax(data);
+        std::cout << "data min/max: " << min << "/" << max << std::endl;
         if (min <= max) {
             if (m_dataMin > min)
                 m_dataMin = min;

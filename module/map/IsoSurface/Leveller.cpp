@@ -26,6 +26,7 @@
 #include <thrust/iterator/zip_iterator.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <thrust/tuple.h>
+#include <cmath>
 #include "tables.h"
 
 
@@ -296,19 +297,27 @@ struct ComputeOutput {
     const unsigned int edge = triTable[m_data.m_caseNums[ValidCellIndex]][idx]; \
     const unsigned int v1 = edgeTable[0][edge]; \
     const unsigned int v2 = edgeTable[1][edge]; \
-    const Scalar t = interpolation_weight<Scalar>(field[v1], field[v2], m_data.m_isovalue); \
+    const Scalar f1 = field[v1]; \
+    const Scalar f2 = field[v2]; \
+    Scalar t; \
     Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
-    for (int j = nc; j < m_data.m_numInVertData; j++) { \
-        m_data.m_outVertPtr[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtr[j][cl[v1]], m_data.m_inVertPtr[j][cl[v2]], t); \
-    } \
-    for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
-        m_data.m_outVertPtrI[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtrI[j][cl[v1]], m_data.m_inVertPtrI[j][cl[v2]], t); \
-    } \
-    for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
-        m_data.m_outVertPtrB[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtrB[j][cl[v1]], m_data.m_inVertPtrB[j][cl[v2]], t); \
+    if (std::isnan(f1) || std::isnan(f2)) { \
+        /* Skip this edge - don't output anything */ \
+        (void)outvertexindex; /* suppress unused warning */ \
+    } else { \
+        t = interpolation_weight<Scalar>(f1, f2, m_data.m_isovalue); \
+        for (int j = nc; j < m_data.m_numInVertData; j++) { \
+            m_data.m_outVertPtr[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtr[j][cl[v1]], m_data.m_inVertPtr[j][cl[v2]], t); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
+            m_data.m_outVertPtrI[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtrI[j][cl[v1]], m_data.m_inVertPtrI[j][cl[v2]], t); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
+            m_data.m_outVertPtrB[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtrB[j][cl[v1]], m_data.m_inVertPtrB[j][cl[v2]], t); \
+        } \
     }
 
             switch (m_data.m_tl[CellNr]) {
@@ -478,19 +487,27 @@ struct ComputeOutput {
     const unsigned int edge = triTable[m_data.m_caseNums[ValidCellIndex]][idx]; \
     const unsigned int v1 = edgeTable[0][edge]; \
     const unsigned int v2 = edgeTable[1][edge]; \
-    const Scalar t = interpolation_weight<Scalar>(field[v1], field[v2], m_data.m_isovalue); \
+    const Scalar f1 = field[v1]; \
+    const Scalar f2 = field[v2]; \
+    Scalar t; \
     Index outvertexindex = m_data.m_LocationList[ValidCellIndex] + idx; \
-    for (int j = nc; j < m_data.m_numInVertData; j++) { \
-        m_data.m_outVertPtr[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtr[j][base + v1], m_data.m_inVertPtr[j][base + v2], t); \
-    } \
-    for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
-        m_data.m_outVertPtrI[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtrI[j][base + v1], m_data.m_inVertPtrI[j][base + v2], t); \
-    } \
-    for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
-        m_data.m_outVertPtrB[j][outvertexindex] = \
-            lerp(m_data.m_inVertPtrB[j][base + v1], m_data.m_inVertPtrB[j][base + v2], t); \
+    if (std::isnan(f1) || std::isnan(f2)) { \
+        /* Skip this edge - don't output anything */ \
+        (void)outvertexindex; /* suppress unused warning */ \
+    } else { \
+        t = interpolation_weight<Scalar>(f1, f2, m_data.m_isovalue); \
+        for (int j = nc; j < m_data.m_numInVertData; j++) { \
+            m_data.m_outVertPtr[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtr[j][base + v1], m_data.m_inVertPtr[j][base + v2], t); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataI; j++) { \
+            m_data.m_outVertPtrI[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtrI[j][base + v1], m_data.m_inVertPtrI[j][base + v2], t); \
+        } \
+        for (int j = 0; j < m_data.m_numInVertDataB; j++) { \
+            m_data.m_outVertPtrB[j][outvertexindex] = \
+                lerp(m_data.m_inVertPtrB[j][base + v1], m_data.m_inVertPtrB[j][base + v2], t); \
+        } \
     }
             const Index Cellbegin = CellNr * 3;
             Scalar field[3];
