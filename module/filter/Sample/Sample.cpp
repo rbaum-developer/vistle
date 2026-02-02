@@ -48,7 +48,7 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
 {
     int found = 0;
     auto inObj = inData->grid();
-    const float NO_VALUE = getInvalidValue();
+    const float INVALID_VALUE = getInvalidValue();
     const GridInterface *inGrid = inObj->getInterface<GridInterface>();
     if (!inGrid) {
         std::cerr << "Failed to pass grid" << std::endl;
@@ -66,7 +66,7 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
     viskores::cont::DataSet refVTKMs;
     vistle::vtkmSetGrid(refVTKMs, targetObj);
     filter.SetGeometry(refVTKMs);
-    filter.SetInvalidValue(NO_VALUE);
+    filter.SetInvalidValue(INVALID_VALUE);
 
     // Set up source data and field
     viskores::cont::DataSet inVTKMs;
@@ -216,7 +216,7 @@ bool Sample::reduce(int timestep)
                             auto locDatVec = locDat->x().data();
 
                             for (Index bIdx = 0; bIdx < locDat->getSize(); ++bIdx) {
-                                if (locDatVec[bIdx] != valOut) {
+                                if (locDatVec[bIdx] != NO_VALUE) {
                                     numHits[bIdx] += 1;
                                     globDatVec[bIdx] += locDatVec[bIdx];
                                 }
@@ -245,7 +245,7 @@ bool Sample::reduce(int timestep)
                             auto locDatVec = locDat->x().data();
 
                             for (Index bIdx = 0; bIdx < locDat->getSize(); ++bIdx) {
-                                if (locDatVec[bIdx] != valOut) {
+                                if (locDatVec[bIdx] != NO_VALUE) {
                                     globDatVec[bIdx] = locDatVec[bIdx];
                                 }
                             }

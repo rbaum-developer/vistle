@@ -37,6 +37,8 @@ private:
     std::vector<int> blockIdx;
 
     bool m_useCelltree = false;
+
+    float NO_VALUE = 0.0; // replacment value, not NAN to avoid NAN problems 
 };
 
 #endif
