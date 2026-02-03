@@ -156,6 +156,10 @@ bool Sample::reduce(int timestep)
 
     mpi::all_gather(comm(), numLocalObjs, objPerRank);
 
+    for(int i = 0; i < nProcs; ++i) {
+        std::cout << "Rank " << rank() << " has " << objPerRank[i] << " objects on rank " << i << std::endl;
+    }
+
     for (int r = 0; r < nProcs; ++r) {
         if (objPerRank[r] < 1)
             continue;
