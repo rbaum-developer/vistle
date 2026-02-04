@@ -130,7 +130,7 @@ int Sample::SampleToGrid(const vistle::GeometryInterface *target, vistle::DataBa
             ptrOnData[i] = p;
             found = 1;
         } else {
-            ptrOnData[i] = NO_VALUE;
+            ptrOnData[i] = INVALID_VALUE;// NO_VALUE;
         }
     }
     sampled = DataBase::as(Object::ptr(dataOut));
@@ -220,7 +220,7 @@ bool Sample::reduce(int timestep)
                             auto locDatVec = locDat->x().data();
 
                             for (Index bIdx = 0; bIdx < locDat->getSize(); ++bIdx) {
-                                if (locDatVec[bIdx] != NO_VALUE) {
+                                if (locDatVec[bIdx] != valOut){//NO_VALUE) {
                                     numHits[bIdx] += 1;
                                     globDatVec[bIdx] += locDatVec[bIdx];
                                 }
@@ -249,7 +249,7 @@ bool Sample::reduce(int timestep)
                             auto locDatVec = locDat->x().data();
 
                             for (Index bIdx = 0; bIdx < locDat->getSize(); ++bIdx) {
-                                if (locDatVec[bIdx] != NO_VALUE) {
+                                if (!std::isnan(locDatVec[bIdx])) {
                                     globDatVec[bIdx] = locDatVec[bIdx];
                                 }
                             }
