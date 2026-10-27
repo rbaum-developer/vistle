@@ -3,6 +3,8 @@
 
 #include <vistle/module/module.h>
 
+#include <mutex>
+
 class ExtractTimesteps: public vistle::Module {
 public:
     ExtractTimesteps(const std::string &name, int moduleID, mpi::communicator comm);
@@ -21,6 +23,8 @@ private:
     };
     TimestepSelection selectTimesteps(int timestep, int numTimesteps) const;
     vistle::coRestraint m_timesteps;
+    mutable std::mutex m_timestepWarningMutex;
+    mutable bool m_checkedTimestepSelection = false;
 
     vistle::StringParameter *p_timesteps = nullptr;
     vistle::Port *p_in[NUMPORTS] = {};

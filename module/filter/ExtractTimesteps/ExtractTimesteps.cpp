@@ -5,6 +5,8 @@
 
 #include "ExtractTimesteps.h"
 
+#include <algorithm>
+
 using namespace vistle;
 
 ExtractTimesteps::ExtractTimesteps(const std::string &name, int moduleID, mpi::communicator comm)
@@ -19,13 +21,17 @@ ExtractTimesteps::ExtractTimesteps(const std::string &name, int moduleID, mpi::c
     }
 
     p_timesteps =
-        addStringParameter("timesteps", "timestep indices to keep, e.g. 0,2,4 or 1-5", "all", Parameter::Restraint);
+        addStringParameter("timesteps", "timestep indices to keep, e.g. single timesteps 0,2,4 or ranges 1-5 or every nth timestep in a range 1-10/2", "all", Parameter::Restraint);
 }
 
 bool ExtractTimesteps::prepare()
 {
     m_timesteps.clear();
     m_timesteps.add(p_timesteps->getValue());
+    {
+        std::lock_guard<std::mutex> lock(m_timestepWarningMutex);
+        m_checkedTimestepSelection = false;
+    }
     return true;
 }
 
@@ -74,6 +80,22 @@ bool ExtractTimesteps::compute(const std::shared_ptr<BlockTask> &task) const
         numTimesteps = splits[first].mapped->getNumTimesteps();
     if (numTimesteps <= 0)
         numTimesteps = grid->getNumTimesteps();
+
+    if (numTimesteps > 0) {
+        if (!m_checkedTimestepSelection) {
+            std::lock_guard<std::mutex> lock(m_timestepWarningMutex);
+            m_checkedTimestepSelection = true;
+            const auto &selectedTimesteps = m_timesteps.getValues();
+            const auto outOfRange = std::find_if(selectedTimesteps.begin(), selectedTimesteps.end(),
+                                                 [numTimesteps](ssize_t selected) {
+                                                     return selected >= numTimesteps;
+                                                 });
+            if (outOfRange != selectedTimesteps.end()) {
+                sendWarning("selected timestep %zd is outside input data with %d timesteps", *outOfRange,
+                            numTimesteps);
+            }
+        }
+    }
 
     const auto timeSel = selectTimesteps(splits[first].timestep, numTimesteps);
     if (!timeSel.selected){        
